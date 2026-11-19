@@ -1,0 +1,99 @@
+name: RMSMax
+options:
+  bundleIdPrefix: dev.rms.max
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "8"
+    PRODUCT_NAME: "RMS MAX"
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    DEVELOPMENT_TEAM: UG53523VMB
+    CODE_SIGN_STYLE: Automatic
+packages:
+  RMSMax:
+    path: .
+targets:
+  RMSMax_macOS:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/RMSMaxApp
+      - path: XcodeSupport/Assets.xcassets
+    dependencies:
+      - package: RMSMax
+        product: RMSMaxCore
+    info:
+      path: XcodeSupport/macOS-Info.plist
+      properties:
+        CFBundleDisplayName: RMS MAX
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        LSApplicationCategoryType: public.app-category.social-networking
+        NSCameraUsageDescription: "RMS MAX использует камеру для зашифрованных видеозвонков."
+        NSMicrophoneUsageDescription: "RMS MAX использует микрофон для голосовых и видеозвонков."
+        NSUserNotificationAlertStyle: alert
+    entitlements:
+      path: XcodeSupport/macOS.entitlements
+      properties:
+        com.apple.security.device.camera: true
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rms.max.macos
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+        ENABLE_APP_SANDBOX: NO
+  RMSMax_iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources/RMSMaxApp
+      - path: XcodeSupport/Assets.xcassets
+    dependencies:
+      - package: RMSMax
+        product: RMSMaxCore
+    info:
+      path: XcodeSupport/iOS-Info.plist
+      properties:
+        CFBundleDisplayName: RMS MAX
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: "RMS MAX использует камеру для зашифрованных видеозвонков."
+        NSMicrophoneUsageDescription: "RMS MAX использует микрофон для голосовых и видеозвонков."
+        NSFaceIDUsageDescription: "RMS MAX использует Face ID для защиты локального хранилища и ключей."
+        UIBackgroundModes:
+          - audio
+          - voip
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rms.max.ios
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+schemes:
+  RMSMax_macOS:
+    build:
+      targets:
+        RMSMax_macOS: all
+  RMSMax_iOS:
+    build:
+      targets:
+        RMSMax_iOS: all

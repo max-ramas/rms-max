@@ -1,0 +1,380 @@
+import SwiftUI
+import RMSMaxCore
+
+struct ContentView: View {
+    @EnvironmentObject private var store: AppStore
+    @State private var searchText = ""
+    @State private var showingSettings = false
+    @State private var showingJoinCallSheet = false
+    @State private var showingNewGroupSheet = false
+    @State private var showingCallHistory = false
+    @State private var showingContacts = false
+    @State private var joinLinkInput = ""
+    @State private var joinSecureCall = true
+    @State private var joinVideoCall = false
+    @State private var newGroupTitle = ""
+
+    var filteredChats: [MaxChat] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return store.chats }
+        return store.chats.filter {
+            store.resolvedChatTitle($0).lowercased().contains(q)
+                || ($0.lastMessage?.displayText.lowercased().contains(q) ?? false)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            if store.isLocked {
+                biometricLockScreen
+            } else if store.authStep != .authenticated {
+                AuthView()
+            } else {
+                NavigationSplitView {
+                    chatListSidebar
+                        .navigationTitle("RMS MAX")
+                        .searchable(text: $searchText, prompt: "Поиск чатов и сообщений")
+                        .task(id: searchText) {
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            guard !Task.isCancelled else { return }
+                            await store.searchMessages(searchText)
+                        }
+                        .toolbar {
+                            ToolbarItemGroup(placement: .primaryAction) {
+                                Button {
+                                    showingNewGroupSheet = true
+                                } label: {
+                                    Label("Новая группа", systemImage: "square.and.pencil")
+                                }
+                                Button {
+                                    showingCallHistory = true
+                                } label: {
+                                    Label("Звонки", systemImage: "phone.badge.clock")
+                                }
+                                Button {
+                                    showingContacts = true
+                                } label: {
+                                    Label("Контакты", systemImage: "person.crop.circle")
+                                }
+                                Button {
+                                    showingJoinCallSheet = true
+                                } label: {
+                                    Label("Звонок по ссылке", systemImage: "video.badge.plus")
+                                }
+                                Button {
+                                    showingSettings = true
+                                } label: {
+                                    Label("Настройки", systemImage: "gearshape")
+                                }
+                            }
+                        }
+                } detail: {
+                    if let chatId = store.selectedChatId,
+                       let chat = store.chats.first(where: { $0.id == chatId }) {
+                        ChatDetailView(chat: chat)
+                            .id(chat.id)
+                    } else {
+                        ContentUnavailableView(
+                            "Выберите чат",
+                            systemImage: "lock.shield",
+                            description: Text("RMS MAX — нативный клиент без телеметрии со сквозным шифрованием переписки и звонков.")
+                        )
+                    }
+                }
+            }
+
+            if store.activeCall.phase != .idle {
+                CallOverlayView()
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .alert("Ошибка", isPresented: Binding(
+            get: { store.errorBanner != nil },
+            set: { if !$0 { store.errorBanner = nil } }
+        )) {
+            Button("ОК", role: .cancel) { store.errorBanner = nil }
+        } message: {
+            Text(store.errorBanner ?? "")
+        }
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack {
+                SettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Готово") { showingSettings = false }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 540, minHeight: 580)
+            #endif
+        }
+        .sheet(isPresented: $showingJoinCallSheet) {
+            joinConferenceSheet
+        }
+        .sheet(isPresented: $showingNewGroupSheet) {
+            newGroupSheet
+        }
+        .sheet(isPresented: $showingCallHistory) {
+            NavigationStack {
+                CallHistoryView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Готово") { showingCallHistory = false }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 460, minHeight: 520)
+            #endif
+        }
+        .sheet(isPresented: $showingContacts) {
+            NavigationStack {
+                ContactsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Готово") { showingContacts = false }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 460, minHeight: 540)
+            #endif
+        }
+    }
+
+    private var chatListSidebar: some View {
+        List(selection: Binding(
+            get: { store.selectedChatId },
+            set: { newId in
+                Task { await store.selectChat(newId) }
+            }
+        )) {
+            Section {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(store.isConnected ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(store.isConnected ? "Подключено" : "Переподключение...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Label("Телеметрия: выкл", systemImage: "hand.raised.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                Section("Чаты") {
+                    ForEach(filteredChats) { chat in
+                        ChatRowView(chat: chat)
+                            .tag(chat.id)
+                    }
+                }
+                Section {
+                    if store.isSearchingMessages && store.messageSearchHits.isEmpty {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else if store.messageSearchHits.isEmpty {
+                        Text(searchText.count < 2 ? "Введите хотя бы 2 символа" : "Ничего не найдено")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(store.messageSearchHits) { hit in
+                        Button {
+                            Task { await store.openMessage(chatId: hit.chatId, message: hit.message) }
+                        } label: {
+                            SearchHitRow(hit: hit, query: searchText)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("Сообщения")
+                }
+            } else {
+                ForEach(filteredChats) { chat in
+                    ChatRowView(chat: chat)
+                        .tag(chat.id)
+                }
+            }
+        }
+    }
+
+    private var biometricLockScreen: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "lock.applewatch")
+                .font(.system(size: 54))
+                .foregroundStyle(.tint)
+            Text("RMS MAX заблокирован")
+                .font(.title2.bold())
+            Button("Разблокировать") {
+                Task { await store.authenticateBiometrics() }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task {
+            await store.authenticateBiometrics()
+        }
+    }
+
+    private var joinConferenceSheet: some View {
+        NavigationStack {
+            Form {
+                TextField("Ссылка или ID звонка (https://max.ru/joincall/...)", text: $joinLinkInput)
+                Toggle("Включить сквозное шифрование (SFrame)", isOn: $joinSecureCall)
+                Toggle("Начать с видео", isOn: $joinVideoCall)
+            }
+            .navigationTitle("Присоединиться к звонку")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") { showingJoinCallSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Войти") {
+                        let link = joinLinkInput
+                        showingJoinCallSheet = false
+                        Task {
+                            await store.joinConferenceByLink(link, isVideo: joinVideoCall, secure: joinSecureCall)
+                        }
+                    }
+                    .disabled(joinLinkInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 420, minHeight: 220)
+        #endif
+    }
+
+    private var newGroupSheet: some View {
+        NavigationStack {
+            Form {
+                TextField("Название группы", text: $newGroupTitle)
+                Text("После создания группы откройте её настройки шифрования (🔒), чтобы активировать групповое E2E (X25519 + Ed25519).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .navigationTitle("Новая группа")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") { showingNewGroupSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Создать") {
+                        let title = newGroupTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                        showingNewGroupSheet = false
+                        newGroupTitle = ""
+                        Task {
+                            _ = try? await store.client.createGroup(title: title, userIds: [])
+                            if let acc = store.currentAccount {
+                                await store.connectAndSyncAccount(acc)
+                            }
+                        }
+                    }
+                    .disabled(newGroupTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 400, minHeight: 210)
+        #endif
+    }
+}
+
+private struct SearchHitRow: View {
+    @EnvironmentObject private var store: AppStore
+    let hit: MessageSearchHit
+    let query: String
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .short
+        f.timeStyle = .short
+        return f
+    }()
+
+    private var highlighted: AttributedString {
+        let clean = hit.snippet.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        var attr = AttributedString(clean)
+        let q = query.trimmingCharacters(in: .whitespaces)
+        if !q.isEmpty, let range = attr.range(of: q, options: .caseInsensitive) {
+            attr[range].font = .subheadline.bold()
+            attr[range].foregroundColor = .accentColor
+        }
+        return attr
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                if hit.isLocalE2E {
+                    Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.green)
+                }
+                Text(store.chats.first(where: { $0.id == hit.chatId }).map { store.resolvedChatTitle($0) } ?? "Чат")
+                    .font(.caption.bold())
+                    .lineLimit(1)
+                Spacer()
+                Text(Self.formatter.string(from: hit.message.date))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text(highlighted)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .padding(.vertical, 3)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct ChatRowView: View {
+    @EnvironmentObject private var store: AppStore
+    let chat: MaxChat
+
+    var body: some View {
+        let settings = store.chatSettingsByChat[chat.id]
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(chat.type == .chat ? Color.indigo.opacity(0.2) : Color.accentColor.opacity(0.18))
+                    .frame(width: 42, height: 42)
+                Image(systemName: chat.type == .chat ? "person.3.fill" : (chat.type == .channel ? "megaphone.fill" : "person.fill"))
+                    .foregroundStyle(chat.type == .chat ? Color.indigo : Color.accentColor)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    Text(store.resolvedChatTitle(chat))
+                        .font(.headline)
+                        .lineLimit(1)
+                    if settings?.isActive == true {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                    }
+                }
+                if let last = chat.lastMessage {
+                    Text(last.displayText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            if chat.newMessages > 0 {
+                Text("\(chat.newMessages)")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(chat.isMuted ? Color.secondary.opacity(0.4) : Color.accentColor))
+                    .foregroundStyle(.white)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}

@@ -1,0 +1,24 @@
+
+# RMS Memory Agent Rules
+/AGENT.md
+
+# RMS Memory Agent Rules
+/.cursorrules
+/.windsurfrules
+/.clinerules
+/.rules
+/.github/copilot-instructions.md
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+/.zed/assistant.md
+build/
+dist/
+
+# Build products and caches
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+.DS_Store
