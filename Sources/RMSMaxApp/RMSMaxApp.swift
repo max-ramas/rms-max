@@ -12,6 +12,7 @@ struct RMSMaxApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .onOpenURL { store.incomingURL = $0 }
                 .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
         }
         .onChange(of: scenePhase) { _, phase in

@@ -13,7 +13,7 @@ struct PermissionsBanner: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(state == .notDetermined ? "Разрешите уведомления" : "Уведомления выключены")
                         .font(.subheadline.bold())
-                    Text(state == .silenced ? "Баннеры и звук выключены в настройках системы."
+                    Text(state == .silenced ? "В настройках системы выключено: \(perms.notificationDetail)."
                          : "Иначе вы не увидите новые сообщения и звонки, пока приложение закрыто.")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }

@@ -40,6 +40,11 @@ public final class AppStore: ObservableObject {
 
     @Published public var chats: [MaxChat] = []
     @Published public var contacts: [Int64: MaxContact] = [:]
+    /// Account privacy settings (`config.user`): SEARCH_BY_PHONE, INCOMING_CALL, CHATS_INVITE, PHONE_NUMBER_PRIVACY, HIDDEN, CONTENT_LEVEL_ACCESS.
+    @Published public var userSettings: [String: JSONValue] = [:]
+    /// Animated emoji (Lottie): packs of the SYSTEM section and every animoji fetched so far.
+    @Published public internal(set) var animojiSets: [AnimojiSet] = []
+    @Published public internal(set) var animojiCache: [Int64: Animoji] = [:]
     @Published public var messagesByChat: [Int64: [MaxMessage]] = [:]
     @Published public var chatSettingsByChat: [Int64: ChatE2ESettings] = [:]
     @Published public var pendingE2ERequests: [Int64: PendingE2ERequest] = [:]
@@ -53,7 +58,11 @@ public final class AppStore: ObservableObject {
     @Published public var isSearchingMessages = false
 
     @Published public var sessions: [MaxSessionInfo] = []
-    @Published public var activeCall = ActiveCallState()
+    @Published public var activeCall = ActiveCallState() {
+        didSet { CallSounds.shared.update(old: oldValue, new: activeCall) }
+    }
+    /// A max:// or max.ru link the system handed to the app; the window shows the matching sheet and clears it.
+    @Published public var incomingURL: URL?
     @Published public var customBlockedDomains: [String] = TrackerBlocker.defaultBlockedDomains
     @Published public var telemetryMode: String = "disabled"
 
@@ -88,6 +97,8 @@ public final class AppStore: ObservableObject {
     let prefetchGate = PrefetchGate(limit: 3)
     /// Mobile data / hotspot: auto-download is restricted to voice messages unless the user allows more.
     var networkIsMetered = false
+    /// Reactions a chat allows (`op 258`): nil = not loaded yet.
+    @Published public internal(set) var chatReactions: [Int64: ChatReactions] = [:]
     var typingTokens: [String: Int] = [:]
     var lastTypingSent: [Int64: Date] = [:]
     static let sendTypingKey = "rmsmaks.privacy.sendTyping"
@@ -490,6 +501,8 @@ public final class AppStore: ObservableObject {
             // Mute lives in the account config (`config.chats[id].dontDisturbUntil`), not in the chat object.
             applyStoredMutes()
             applyConfigMutes(await client.serverConfig)
+            applyUserSettings(await client.serverConfig)
+            Task { await self.loadAnimojiSets() }
             reconnectAttempt = 0
             ProtocolLog.add("synced: \(chats.count) chats, \(contacts.count) contacts")
             Task {
@@ -660,6 +673,7 @@ public final class AppStore: ObservableObject {
         case 293:
             applyTranscription(resp.payload)
         case 134:
+            applyUserSettings(resp.payload["config"])
             applyConfigMutes(resp.payload["config"]) // config change: partial {chats:{id:{dontDisturbUntil}}}
         case 129:
             applyTypingPush(resp.payload)
@@ -672,9 +686,9 @@ public final class AppStore: ObservableObject {
 
     private func sendIncomingNotification(for msg: MaxMessage, chatId: Int64) async {
         // Skip only when the user is actually looking at this chat; a background window must still notify.
-        guard !(selectedChatId == chatId && NotificationService.shared.appIsActive) else { return }
-        guard let chat = chats.first(where: { $0.id == chatId }) else { return }
-        guard !chat.isMuted else { return }
+        guard !(selectedChatId == chatId && NotificationService.shared.appIsActive) else { NotificationService.shared.logSkip("chat is open and the app is active"); return }
+        guard let chat = chats.first(where: { $0.id == chatId }) else { NotificationService.shared.logSkip("chat \(chatId) is not in the list"); return }
+        guard !chat.isMuted else { NotificationService.shared.logSkip("chat is muted"); return }
 
         let title = resolvedChatTitle(chat)
         let senderName = contacts[msg.senderId]?.name
@@ -717,6 +731,7 @@ public final class AppStore: ObservableObject {
             Task { await self.loadPostStats(chatId: chatId, messages: resolved) }
             Task { await self.refreshCommentCounts(chatId: chatId, messages: resolved) }
             self.prefetchMedia(resolved)
+            Task { await self.loadChatReactions(chatId: chatId) }
             if let last = resolved.last, let msgId = Int64(last.id) {
                 _ = try? await client.readMessage(chatId: chatId, messageId: msgId, markMs: last.timeMs)
                 if let idx = chats.firstIndex(where: { $0.id == chatId }) {
@@ -729,12 +744,14 @@ public final class AppStore: ObservableObject {
         }
     }
 
-    public func sendTextMessage(chatId: Int64, plaintext: String, replyToId: String? = nil) async {
+    public func sendTextMessage(chatId: Int64, plaintext: String, replyToId: String? = nil, animojis: [Animoji] = [], richElements: [TextElement] = []) async {
         let trimmed = plaintext.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         let settings = chatSettingsByChat[chatId] ?? ChatE2ESettings()
         let wireText: String
+        // Markdown-style markers become MAX formatting ranges; encrypted chats carry plain text only.
+        let formatted = settings.isActive ? (text: trimmed, elements: [TextElement]()) : formatOutgoing(trimmed, original: plaintext, rich: richElements, chatId: chatId)
         do {
             if settings.isActive {
                 let sKey = settings.session.flatMap { Data(hexString: $0.sharedSecretHex) }
@@ -746,11 +763,12 @@ public final class AppStore: ObservableObject {
                 )
                 wireText = Obfuscation.encodeEncryptedBytes(packed, mode: settings.obfuscation)
             } else {
-                wireText = trimmed
+                wireText = formatted.text
             }
 
             let replyInt = replyToId.flatMap { Int64($0) }
-            let resp = try await client.sendMessage(chatId: chatId, text: wireText, replyTo: replyInt)
+            let resp = try await client.sendMessage(chatId: chatId, text: wireText, replyTo: replyInt,
+                                                    elements: settings.isActive ? [] : (formatted.elements + Self.animojiElements(in: formatted.text, picks: animojis)).map(\.json))
             if let msgVal = resp.payload["message"] {
                 var parsed = parseMessage(msgVal, chatId: chatId)
                 if settings.isActive {
@@ -774,22 +792,38 @@ public final class AppStore: ObservableObject {
         }
     }
 
+    /// One reaction per person: the same emoji again removes it (op 179), another one replaces it (op 178).
     public func toggleReaction(chatId: Int64, messageId: String, emoji: String) async {
-        guard let mid = Int64(messageId) else { return }
+        guard let mid = Int64(messageId), let idx = messagesByChat[chatId]?.firstIndex(where: { $0.id == messageId }) else { return }
+        let mine = messagesByChat[chatId]?[idx].myReaction
         do {
-            _ = try await client.addReaction(chatId: chatId, messageId: mid, emoji: emoji)
-            if var list = messagesByChat[chatId], let idx = list.firstIndex(where: { $0.id == messageId }) {
-                if let rIdx = list[idx].reactions.firstIndex(where: { $0.reaction == emoji }) {
-                    let cur = list[idx].reactions[rIdx]
-                    list[idx].reactions[rIdx] = MaxReactionCount(reaction: emoji, count: cur.count + 1)
-                } else {
-                    list[idx].reactions.append(MaxReactionCount(reaction: emoji, count: 1))
-                }
-                messagesByChat[chatId] = list
+            if mine == emoji {
+                _ = try await client.removeReaction(chatId: chatId, messageId: mid)
+                adjustReaction(chatId: chatId, messageId: messageId, remove: emoji, add: nil)
+            } else {
+                _ = try await client.addReaction(chatId: chatId, messageId: mid, emoji: emoji)
+                adjustReaction(chatId: chatId, messageId: messageId, remove: mine, add: emoji)
             }
         } catch {
             errorBanner = error.localizedDescription
         }
+    }
+
+    func adjustReaction(chatId: Int64, messageId: String, remove: String?, add: String?) {
+        guard var list = messagesByChat[chatId], let i = list.firstIndex(where: { $0.id == messageId }) else { return }
+        if let remove, let r = list[i].reactions.firstIndex(where: { $0.reaction == remove }) {
+            let c = list[i].reactions[r].count - 1
+            if c <= 0 { list[i].reactions.remove(at: r) } else { list[i].reactions[r] = MaxReactionCount(reaction: remove, count: c) }
+        }
+        if let add {
+            if let r = list[i].reactions.firstIndex(where: { $0.reaction == add }) {
+                list[i].reactions[r] = MaxReactionCount(reaction: add, count: list[i].reactions[r].count + 1)
+            } else {
+                list[i].reactions.append(MaxReactionCount(reaction: add, count: 1))
+            }
+        }
+        list[i].myReaction = add
+        messagesByChat[chatId] = list
     }
 
     public func deleteMessage(chatId: Int64, messageId: String, forEveryone: Bool) async {
@@ -1571,7 +1605,9 @@ public final class AppStore: ObservableObject {
             reactions: reactions,
             decrypted: nil,
             forwardedFromId: forwardedFrom,
-            commentsCount: v["commentsInfo"]?["totalCount"]?.int64Value.map(Int.init)
+            commentsCount: v["commentsInfo"]?["totalCount"]?.int64Value.map(Int.init),
+            myReaction: v["reactionInfo"]?["yourReaction"]?.stringValue,
+            elements: (v["elements"]?.arrayValue ?? []).compactMap(TextElement.init)
         )
     }
 

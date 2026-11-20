@@ -22,6 +22,7 @@ struct ContentView: View {
 
     @State private var showingFolders = false
     @State private var showingJoinLink = false
+    @State private var joinLinkInitial = ""
 
     private var folderChats: [MaxChat] {
         if store.selectedFolderId == AppStore.chatsTabId { return store.withPinnedFirst(store.chats.filter { $0.type != .channel }) }
@@ -35,6 +36,22 @@ struct ContentView: View {
         return store.chats.filter {
             store.resolvedChatTitle($0).lowercased().contains(q)
                 || ($0.lastMessage?.displayText.lowercased().contains(q) ?? false)
+        }
+    }
+
+    /// max://… or https://max.ru/… handed over by the system (the browser's «open in app» prompt, Finder, Terminal).
+    private func handleIncoming(_ url: URL) {
+        store.incomingURL = nil
+        guard let link = MaxDeepLink.parse(url) else { return }
+        switch link {
+        case .joinCall:
+            joinLinkInput = link.webURL
+            showingJoinCallSheet = true
+        case .message(let chatId, _) where store.chats.contains(where: { $0.id == chatId }):
+            store.selectedChatId = chatId
+        default:
+            joinLinkInitial = link.webURL
+            showingJoinLink = true
         }
     }
 
@@ -144,9 +161,11 @@ struct ContentView: View {
         .sheet(isPresented: $showingNewGroupSheet) {
             NewChatSheet()
         }
-        .sheet(isPresented: $showingJoinLink) {
-            JoinByLinkSheet()
+        .sheet(isPresented: $showingJoinLink, onDismiss: { joinLinkInitial = "" }) {
+            JoinByLinkSheet(initialLink: joinLinkInitial)
         }
+        .onChange(of: store.incomingURL) { _, url in if let url { handleIncoming(url) } }
+        .task { if let url = store.incomingURL { handleIncoming(url) } }
         .sheet(isPresented: $showingCallHistory) {
             NavigationStack {
                 CallHistoryView()

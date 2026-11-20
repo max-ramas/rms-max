@@ -9,18 +9,46 @@ struct SettingsView: View {
     @AppStorage("youtubePreviews") private var youtubePreviews = true
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("voiceFormat") private var voiceFormat = "ogg"
+    @State private var showingMyPhotos = false
+    @State private var showingTwoFactor = false
+    @AppStorage("rmsmaks.sendKey") private var sendKey = "return"
+    @State private var callSounds = CallSounds.shared.enabled
+    @State private var notifTestResult: String?
     @State private var notifEnabled = NotificationService.shared.notificationsEnabled
     @State private var notifPreview = NotificationService.shared.showPreview
     @State private var notifSound = NotificationService.shared.soundEnabled
+
+    /// 79001234567 → +7 900 123 4567.
+    static func formattedPhone(_ raw: String) -> String {
+        let d = raw.filter(\.isNumber)
+        guard d.count == 11, d.first == "7" else { return raw.hasPrefix("+") ? raw : "+" + d }
+        let c = Array(d)
+        return "+7 \(String(c[1...3])) \(String(c[4...6])) \(String(c[7...10]))"
+    }
 
     var body: some View {
         Form {
             if let acc = store.currentAccount {
                 Section("Профиль") {
+                    VStack(spacing: 6) {
+                        AvatarView(url: acc.userId.flatMap { store.contacts[$0] }?.avatarURL, title: acc.displayName, size: 96)
+                            .onTapGesture { if acc.userId.flatMap { store.contacts[$0] }?.avatarURL != nil { showingMyPhotos = true } }
+                        Text(acc.displayName).font(.title3.weight(.semibold))
+                        if store.isConnected { Text("в сети").foregroundStyle(Color.accentColor) }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
                     LabeledContent("Имя", value: acc.displayName)
                     if let phone = acc.phone {
-                        LabeledContent("Телефон", value: phone)
+                        LabeledContent("Телефон", value: Self.formattedPhone(phone))
                     }
+                    if let about = acc.userId.flatMap { store.contacts[$0] }?.description, !about.isEmpty {
+                        LabeledContent("О себе") { Text(about).multilineTextAlignment(.trailing) }
+                    }
+                    if let link = acc.userId.flatMap { store.contacts[$0] }?.link, !link.isEmpty {
+                        LabeledContent("Ссылка", value: link)
+                    }
+                    if let uid = acc.userId { LabeledContent("ID", value: String(uid)) }
                     #if os(macOS)
                     Toggle("Значок в строке меню", isOn: $showMenuBarExtra)
                     #endif
@@ -135,6 +163,27 @@ struct SettingsView: View {
                 Text("Фон и цвет ваших сообщений. Для отдельного чата тему можно задать кнопкой с палитрой в его заголовке.")
             }
 
+            Section {
+                Button("Пароль для входа…") { showingTwoFactor = true }
+            } header: {
+                Text("Безопасность")
+            } footer: {
+                Text("Двухфакторная защита: при входе на новом устройстве после кода из SMS потребуется пароль.")
+            }
+
+            PrivacySettingsSection()
+
+            Section {
+                Picker("Отправка сообщения", selection: $sendKey) {
+                    Text("Return (Shift+Return — новая строка)").tag("return")
+                    Text("⌘Return (Return — новая строка)").tag("cmdReturn")
+                }
+            } header: {
+                Text("Ввод текста")
+            } footer: {
+                Text("Форматирование: ⌘B жирный, ⌘I курсив, ⌘U подчёркнутый, ⇧⌘X зачёркнутый, ⇧⌘. цитата, ⇧⌘M моноширинный, ⌘K ссылка, ⇧⌘N без форматирования.")
+            }
+
             DataAndStorageSection()
 
             PermissionsSection()
@@ -150,6 +199,10 @@ struct SettingsView: View {
                     .onChange(of: notifPreview) { _, v in NotificationService.shared.showPreview = v }
                 Toggle("Звук уведомлений", isOn: $notifSound)
                     .onChange(of: notifSound) { _, v in NotificationService.shared.soundEnabled = v }
+                Toggle("Звуки звонков (гудки при дозвоне, рингтон, сигнал завершения)", isOn: $callSounds)
+                    .onChange(of: callSounds) { _, v in CallSounds.shared.enabled = v }
+                Button("Отправить пробное уведомление") { Task { notifTestResult = await NotificationService.shared.sendTest() } }
+                if let r = notifTestResult { Text(r).font(.caption).foregroundStyle(.secondary) }
             }
 
             Section("Активные сессии") {
@@ -192,9 +245,14 @@ struct SettingsView: View {
             .frame(minWidth: 440, minHeight: 460)
             #endif
         }
+        .sheet(isPresented: $showingTwoFactor) { TwoFactorSheet(store: store).environmentObject(store) }
+        .sheet(isPresented: $showingMyPhotos) {
+            if let id = store.currentAccount?.userId { ProfilePhotosSheet(userId: id) }
+        }
         .task {
             if store.isConnected {
                 await store.refreshSessions()
+                if let id = store.currentAccount?.userId { await store.ensureContacts([id], refresh: true) }
             }
         }
     }

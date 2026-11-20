@@ -38,6 +38,7 @@ struct StickerPicker: View {
     @State private var selected = "recent"
     @State private var query = ""
     @State private var results: [Sticker] = []
+    @State private var managing = false
 
     private let columns = [GridItem(.adaptive(minimum: 72), spacing: 8)]
 
@@ -50,6 +51,7 @@ struct StickerPicker: View {
                 HStack {
                     tab("recent", "Недавние")
                     ForEach(store.stickerPacks) { tab($0.id, $0.title) }
+                    Button { managing = true } label: { Image(systemName: "gearshape") }.buttonStyle(.plain).help("Мои стикеры")
                 }
             }
             ScrollView {
@@ -69,6 +71,7 @@ struct StickerPicker: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $managing) { StickerManageSheet().environmentObject(store) }
         .task {
             if store.stickerPacks.isEmpty { await store.loadStickerPacks() }
         }
@@ -129,5 +132,45 @@ struct ComplaintSheet: View {
         #if os(macOS)
         .frame(minWidth: 360, minHeight: 380)
         #endif
+    }
+}
+
+/// «Мои стикеры»: remove packs, add one by link, clear recents.
+struct StickerManageSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var link = ""
+    @State private var busy = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Добавить набор по ссылке") {
+                    HStack {
+                        TextField("Ссылка на набор стикеров", text: $link)
+                        Button("Добавить") {
+                            busy = true
+                            Task { if await store.addStickerSet(link: link) { link = "" }; busy = false }
+                        }
+                        .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty || busy)
+                    }
+                }
+                Section("Мои наборы") {
+                    ForEach(store.stickerPacks.filter { $0.id.hasPrefix("set-") }) { pack in
+                        HStack {
+                            Text(pack.title)
+                            Spacer()
+                            Button(role: .destructive) {
+                                if let id = Int64(pack.id.dropFirst(4)) { Task { await store.removeStickerSet(id: id) } }
+                            } label: { Image(systemName: "trash") }.buttonStyle(.borderless)
+                        }
+                    }
+                }
+                Section { Button("Очистить недавние", role: .destructive) { Task { await store.clearRecentStickers() } } }
+            }
+            .navigationTitle("Мои стикеры")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } } }
+        }
+        .frame(minWidth: 400, minHeight: 420)
     }
 }

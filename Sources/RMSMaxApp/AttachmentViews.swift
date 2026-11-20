@@ -272,6 +272,7 @@ enum UploadPreparer {
 struct AttachButton: View {
     let onPicked: (PickedFile) -> Void
     let onError: (String) -> Void
+    var onPoll: (() -> Void)? = nil
 
     @State private var showingImporter = false
     #if os(iOS)
@@ -285,6 +286,7 @@ struct AttachButton: View {
             Button { showingPhotos = true } label: { Label("Фото или видео", systemImage: "photo.on.rectangle") }
             #endif
             Button { showingImporter = true } label: { Label("Файл", systemImage: "doc") }
+            if let onPoll { Button(action: onPoll) { Label("Опрос…", systemImage: "chart.bar") } }
         } label: {
             Image(systemName: "paperclip").font(.title3)
         }

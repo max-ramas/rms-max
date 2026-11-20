@@ -39,6 +39,33 @@ public final class NotificationService {
     public var soundEnabled = true
 
     private var activeChatIds: Set<Int64> = []
+    private var logged = 0
+
+    /// Why a notification did or did not appear, in the protocol log (first lines per launch only; no message text).
+    func logNote(_ s: String) {
+        guard logged < 12 else { return }
+        logged += 1
+        ProtocolLog.add("notification: \(s)")
+    }
+    func logSkip(_ why: String) { logNote("skipped — \(why)") }
+
+    /// Sends a visible test notification and reports what the system said about it.
+    public func sendTest() async -> String {
+        guard isBundledApp else { return "Уведомления работают только в собранном приложении." }
+        await PermissionsCenter.shared.refresh()
+        let st = PermissionsCenter.shared.state(.notifications)
+        guard st != .notDetermined, st != .denied else { return "Система не разрешает уведомления: \(st.label). Включите их в настройках macOS." }
+        let content = UNMutableNotificationContent()
+        content.title = "RMS MAKS"
+        content.body = "Пробное уведомление: если вы это видите, уведомления работают."
+        if soundEnabled { content.sound = .default }
+        do {
+            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "rmsmax_test_\(UUID().uuidString)", content: content, trigger: nil))
+            return "Отправлено. Если баннера нет — проверьте стиль уведомлений для RMS MAKS и режим «Не беспокоить» в системе."
+        } catch {
+            return "Система отклонила уведомление: \(error.localizedDescription)"
+        }
+    }
 
     private var isBundledApp: Bool {
         Bundle.main.bundleURL.pathExtension.lowercased() == "app" && Bundle.main.bundleIdentifier != nil
@@ -81,11 +108,11 @@ public final class NotificationService {
         senderName: String? = nil,
         isGroup: Bool = false
     ) async {
-        guard notificationsEnabled else { return }
+        guard notificationsEnabled else { logSkip("switched off in the app settings"); return }
         activeChatIds.insert(chatId)
         updateBadgeCount(activeChatIds.count)
 
-        guard isBundledApp else { return }
+        guard isBundledApp else { logSkip("not a bundled app"); return }
         let center = UNUserNotificationCenter.current()
         let content = UNMutableNotificationContent()
         content.title = title
@@ -107,7 +134,12 @@ public final class NotificationService {
             content: content,
             trigger: nil
         )
-        try? await center.add(req)
+        do {
+            try await center.add(req)
+            logNote("handed to the system (permission: \(PermissionsCenter.shared.state(.notifications).label))")
+        } catch {
+            logNote("system refused — \(error.localizedDescription)")
+        }
     }
 
     public func notifyIncomingCall(callerName: String, isVideo: Bool, conversationId: String) async {

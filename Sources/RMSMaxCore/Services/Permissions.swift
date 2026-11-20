@@ -84,7 +84,7 @@ public enum PermissionState: Equatable, Sendable {
         switch s {
         case .notDetermined: return .notDetermined
         case .denied: return .denied
-        default: return (alertsOn || soundOn) ? .granted : .silenced
+        default: return (alertsOn && soundOn) ? .granted : .silenced
         }
     }
 }
@@ -98,6 +98,8 @@ public final class PermissionsCenter: ObservableObject {
     @Published public private(set) var states: [PermissionKind: PermissionState] = [:]
     /// Set when a feature cannot work without a permission: the window shows «Нужно разрешение» with a settings button.
     @Published public var alert: PermissionKind?
+    /// «баннеры: вкл, звук: выкл» — what exactly is switched off for notifications.
+    @Published public private(set) var notificationDetail = ""
 
     private static let bannerKey = "rmsmaks.permissions.bannerDismissedUntil"
 
@@ -117,7 +119,8 @@ public final class PermissionsCenter: ObservableObject {
         #endif
         if isBundledApp {
             let s = await UNUserNotificationCenter.current().notificationSettings()
-            next[.notifications] = .from(s.authorizationStatus, alertsOn: s.alertSetting == .enabled, soundOn: s.soundSetting == .enabled)
+            next[.notifications] = .from(s.authorizationStatus, alertsOn: s.alertSetting == .enabled && s.alertStyle != .none, soundOn: s.soundSetting == .enabled)
+            notificationDetail = "баннеры: \(s.alertSetting == .enabled && s.alertStyle != .none ? "вкл" : "выкл"), звук: \(s.soundSetting == .enabled ? "вкл" : "выкл")"
         }
         states = next
     }

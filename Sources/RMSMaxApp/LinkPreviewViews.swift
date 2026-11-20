@@ -34,6 +34,19 @@ func firstLink(in text: String) -> String? {
 }
 
 /// Text with tappable links.
+/// Formatting from MAX (bold, links, mentions) first, plain-text links detected in whatever stays unstyled.
+func linkifiedFormatted(_ text: String, elements: [TextElement]) -> AttributedString {
+    var out = FormattedText.attributed(text, elements: elements)
+    guard let det = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return out }
+    for m in det.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)) {
+        guard let url = m.url, let r = Range(m.range, in: text),
+              let lo = AttributedString.Index(r.lowerBound, within: out),
+              let hi = AttributedString.Index(r.upperBound, within: out), out[lo..<hi].link == nil else { continue }
+        out[lo..<hi].link = url
+    }
+    return out
+}
+
 func linkified(_ text: String) -> AttributedString {
     var out = AttributedString(text)
     guard let det = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return out }

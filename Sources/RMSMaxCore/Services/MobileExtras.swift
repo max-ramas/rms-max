@@ -146,7 +146,13 @@ public extension AppStore {
     /// op 84 `{conversationId}` -> `{link}` — invite link to the running call.
     func callInviteLink(conversationId: String) async -> String? {
         guard let resp = try? await client.sendAndWait(opcode: 84, payload: .object(["conversationId": .string(conversationId)])) else { return nil }
-        return resp.payload["link"]?.stringValue ?? resp.payload["joinLink"]?.stringValue
+        return (resp.payload["link"]?.stringValue ?? resp.payload["joinLink"]?.stringValue).map(Self.conferenceURL)
+    }
+
+    /// The server answers with the bare join token; people need the link the official clients share and open.
+    nonisolated static func conferenceURL(_ linkOrToken: String) -> String {
+        let t = linkOrToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.hasPrefix("http://") || t.hasPrefix("https://") ? t : "https://max.ru/joincall/\(t)"
     }
 
     /// op 39 `{contactId, from, count}` -> `{total, urls}` — the user's profile photos.
@@ -214,7 +220,7 @@ public extension AppStore {
         do {
             let resp = try await client.sendAndWait(opcode: 76, payload: .object(["conversationId": .string(id)]))
             if let link = resp.payload["joinLink"]?.stringValue ?? resp.payload["link"]?.stringValue, !link.isEmpty {
-                return (id, link)
+                return (id, Self.conferenceURL(link))
             }
             if let link = await callInviteLink(conversationId: id) { return (id, link) }
             return (id, "https://max.ru/joincall/\(id)")

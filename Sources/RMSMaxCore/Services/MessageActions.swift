@@ -111,20 +111,21 @@ public extension AppStore {
     }
 
     /// Max opcode 67. Encrypted messages are edited by sending the new text encrypted again.
-    func editMessage(chatId: Int64, messageId: String, newText: String) async {
+    func editMessage(chatId: Int64, messageId: String, newText: String, richElements: [TextElement] = []) async {
         let text = newText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let mid = Int64(messageId) else { return }
         let settings = chatSettingsByChat[chatId] ?? ChatE2ESettings()
         do {
             let wire: String
+            let formatted = settings.isActive ? (text: text, elements: [TextElement]()) : formatOutgoing(text, original: newText, rich: richElements, chatId: chatId)
             if settings.isActive {
                 let key = settings.session.flatMap { Data(hexString: $0.sharedSecretHex) }
                 let packed = try E2EProtocol.packMessage(payload: .text(text), sessionKey: key, password: settings.password, chatId: chatId)
                 wire = Obfuscation.encodeEncryptedBytes(packed, mode: settings.obfuscation)
             } else {
-                wire = text
+                wire = formatted.text
             }
-            _ = try await client.editMessage(chatId: chatId, messageId: mid, text: wire)
+            _ = try await client.editMessage(chatId: chatId, messageId: mid, text: wire, elements: formatted.elements.map(\.json))
             if let i = messagesByChat[chatId]?.firstIndex(where: { $0.id == messageId }) {
                 messagesByChat[chatId]?[i].edited = true
                 if messagesByChat[chatId]?[i].decrypted != nil {

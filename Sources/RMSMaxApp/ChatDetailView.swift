@@ -11,9 +11,18 @@ struct ChatDetailView: View {
     let chat: MaxChat
 
     @State private var draftText = ""
+    @State private var draftElements: [TextElement] = []
+    @State private var editorHeight: CGFloat = 32
+    @State private var showingPollSheet = false
+    @State private var draftAnimojis: [Animoji] = []
+    @State private var showingScheduleSheet = false
+    @State private var showingScheduledList = false
     @State private var replyTarget: MaxMessage?
     @State private var editTarget: MaxMessage?
-    @State private var forwardTarget: MaxMessage?
+    @State private var forwardBatch: ForwardBatch?
+    @State private var selecting = false
+    @State private var selected: Set<String> = []
+    @State private var confirmDeleteSelected = false
     @State private var complaintTarget: MaxMessage?
     @State private var showingStickers = false
     @State private var showingPinned = false
@@ -109,40 +118,7 @@ struct ChatDetailView: View {
                     LazyVStack(spacing: 8) {
                         historyHeader(proxy: proxy)
                         ForEach(messages) { msg in
-                            MessageBubbleView(
-                                message: msg,
-                                isMe: msg.senderId == store.currentAccount?.userId,
-                                senderName: store.contacts[msg.senderId]?.name ?? "Участник",
-                                isGroup: chat.type == .chat,
-                                stats: store.postStats["\(chat.id)_\(msg.id)"],
-                                outgoingColor: themes.theme(for: chat.id).outgoing,
-                                showsTicks: chat.type == .dialog,
-                                isRead: msg.timeMs <= store.peerReadMark(in: liveChat),
-                                onReply: { replyTarget = msg },
-                                onReact: { emoji in
-                                    Task { await store.toggleReaction(chatId: chat.id, messageId: msg.id, emoji: emoji) }
-                                },
-                                onDelete: { forAll in
-                                    Task { await store.deleteMessage(chatId: chat.id, messageId: msg.id, forEveryone: forAll) }
-                                },
-                                isPinned: (store.pinnedByChat[chat.id]?.contains { $0.id == msg.id }) ?? (liveChat.pinnedMessageId == msg.id),
-                                onPin: {
-                                    let already = (store.pinnedByChat[chat.id]?.contains { $0.id == msg.id }) ?? (liveChat.pinnedMessageId == msg.id)
-                                    Task { await store.setPinned(chatId: chat.id, messageId: msg.id, pinned: !already) }
-                                },
-                                onForward: { forwardTarget = msg },
-                                onComplain: { complaintTarget = msg },
-                                onEdit: {
-                                    editTarget = msg
-                                    replyTarget = nil
-                                    draftText = msg.bodyText
-                                }
-                            )
-                            .id(msg.id)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color.yellow.opacity(highlightedId == msg.id ? 0.25 : 0))
-                            )
+                            messageRow(msg)
                         }
 
                         ForEach(store.failedSends[chat.id] ?? []) { item in
@@ -181,7 +157,7 @@ struct ChatDetailView: View {
                     Spacer()
                     Button {
                         editTarget = nil
-                        draftText = ""
+                        draftText = ""; draftElements = []
                     } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain)
                 }
@@ -224,12 +200,19 @@ struct ChatDetailView: View {
                     onSend: sendVoice,
                     onCancel: { recorder.cancel() }
                 )
+            } else if selecting {
+                selectionBar
             } else {
                 composeBar
             }
         }
         .navigationTitle(store.resolvedChatTitle(chat))
         .sheet(isPresented: $showingChatSearch) { ChatSearchSheet(chatId: chat.id) }
+        .sheet(isPresented: $showingPollSheet) { CreatePollSheet(chatId: chat.id) }
+        .sheet(isPresented: $showingScheduleSheet) {
+            ScheduleSendSheet(chatId: chat.id, text: draftText, elements: draftElements) { draftText = ""; draftElements = []; replyTarget = nil }
+        }
+        .sheet(isPresented: $showingScheduledList) { ScheduledListSheet(chatId: chat.id) }
         .onAppear { restoreDraft() }
         .background {
             Group {
@@ -269,7 +252,7 @@ struct ChatDetailView: View {
             // Block 3 — this chat.
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    showingInfo = true
+                    showingInfo.toggle()
                 } label: {
                     Label("Информация", systemImage: "info.circle")
                 }
@@ -303,8 +286,8 @@ struct ChatDetailView: View {
                     .help("Настройки")
             }
         }
-        .sheet(item: $forwardTarget) { msg in
-            ForwardSheet(message: msg)
+        .sheet(item: $forwardBatch) { batch in
+            ForwardSheet(messages: batch.messages) { selecting = false; selected = [] }
         }
         .sheet(item: $complaintTarget) { msg in
             ComplaintSheet(
@@ -319,18 +302,17 @@ struct ChatDetailView: View {
                 .frame(minWidth: 460, minHeight: 420)
                 #endif
         }
-        .sheet(isPresented: $showingInfo) {
-            NavigationStack {
-                GroupInfoView(chatId: chat.id)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Готово") { showingInfo = false }
-                        }
-                    }
-            }
-            #if os(macOS)
-            .frame(minWidth: 480, minHeight: 600)
-            #endif
+        .inspector(isPresented: $showingInfo) {
+            ChatInfoPanel(
+                chatId: chat.id,
+                onClose: { showingInfo = false },
+                onSearch: { showingChatSearch = true },
+                onCall: { video in
+                    let peerId = store.dialogPeerId(for: chat)
+                    Task { await store.startCall(chatId: chat.id, peerId: peerId, isVideo: video, secure: callSecureByDefault) }
+                }
+            )
+            .inspectorColumnWidth(min: 300, ideal: 340, max: 440)
         }
     }
 
@@ -443,12 +425,90 @@ struct ChatDetailView: View {
         .background(Color.accentColor.opacity(0.1))
     }
 
+    @ViewBuilder
+    private func messageRow(_ msg: MaxMessage) -> some View {
+                            HStack(spacing: 8) {
+                                if selecting {
+                                    Image(systemName: selected.contains(msg.id) ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3).foregroundStyle(selected.contains(msg.id) ? Color.accentColor : .secondary)
+                                }
+                            MessageBubbleView(
+                                message: msg,
+                                isMe: msg.senderId == store.currentAccount?.userId,
+                                senderName: store.contacts[msg.senderId]?.name ?? "Участник",
+                                isGroup: chat.type == .chat,
+                                stats: store.postStats["\(chat.id)_\(msg.id)"],
+                                outgoingColor: themes.theme(for: chat.id).outgoing,
+                                showsTicks: chat.type == .dialog,
+                                isRead: msg.timeMs <= store.peerReadMark(in: liveChat),
+                                onReply: { replyTarget = msg },
+                                onReact: { emoji in
+                                    Task { await store.toggleReaction(chatId: chat.id, messageId: msg.id, emoji: emoji) }
+                                },
+                                onDelete: { forAll in
+                                    Task { await store.deleteMessage(chatId: chat.id, messageId: msg.id, forEveryone: forAll) }
+                                },
+                                isPinned: (store.pinnedByChat[chat.id]?.contains { $0.id == msg.id }) ?? (liveChat.pinnedMessageId == msg.id),
+                                onPin: {
+                                    let already = (store.pinnedByChat[chat.id]?.contains { $0.id == msg.id }) ?? (liveChat.pinnedMessageId == msg.id)
+                                    Task { await store.setPinned(chatId: chat.id, messageId: msg.id, pinned: !already) }
+                                },
+                                onForward: { forwardBatch = ForwardBatch(messages: [msg]) },
+                                onComplain: { complaintTarget = msg },
+                                onEdit: {
+                                    editTarget = msg
+                                    replyTarget = nil
+                                    draftText = msg.bodyText
+                                    draftElements = msg.elements.filter { $0.type != "ANIMOJI" }
+                                },
+                                onSelect: { selecting = true; selected = [msg.id] }
+                            )
+                            .allowsHitTesting(!selecting)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture { if selecting { if !selected.insert(msg.id).inserted { selected.remove(msg.id) } } }
+                            .id(msg.id)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.yellow.opacity(highlightedId == msg.id ? 0.25 : 0))
+                            )
+    }
+
+    private var selectedMessages: [MaxMessage] { messages.filter { selected.contains($0.id) } }
+
+    private var selectionBar: some View {
+        HStack(spacing: 16) {
+            Button("Отмена") { selecting = false; selected = [] }
+            Text(selected.isEmpty ? "Выберите сообщения" : "Выбрано: \(selected.count)").foregroundStyle(.secondary)
+            Spacer()
+            Button { copyText(selectedMessages.map(\.bodyText).filter { !$0.isEmpty }.joined(separator: "\n")); selecting = false; selected = [] } label: { Label("Копировать", systemImage: "doc.on.doc") }
+                .disabled(selected.isEmpty)
+            Button { forwardBatch = ForwardBatch(messages: selectedMessages) } label: { Label("Переслать", systemImage: "arrowshape.turn.up.right") }
+                .disabled(selected.isEmpty)
+            Button(role: .destructive) { confirmDeleteSelected = true } label: { Label("Удалить", systemImage: "trash") }
+                .disabled(selected.isEmpty)
+        }
+        .padding(12)
+        .confirmationDialog("Удалить \(selected.count) сообщ.?", isPresented: $confirmDeleteSelected, titleVisibility: .visible) {
+            Button("Удалить у себя", role: .destructive) { deleteSelected(forEveryone: false) }
+            if selectedMessages.allSatisfy({ $0.senderId == store.currentAccount?.userId }) {
+                Button("Удалить у всех", role: .destructive) { deleteSelected(forEveryone: true) }
+            }
+        }
+    }
+
+    private func deleteSelected(forEveryone: Bool) {
+        let ids = selectedMessages.map(\.id)
+        selecting = false; selected = []
+        Task { for id in ids { await store.deleteMessage(chatId: chat.id, messageId: id, forEveryone: forEveryone) } }
+    }
+
     private var composeBar: some View {
         HStack(spacing: 10) {
             AttachButton(
                 onPicked: { file in
                     let caption = draftText
-                    draftText = ""
+                    draftText = ""; draftElements = []
                     Task {
                         await store.sendAttachment(
                             chatId: chat.id, data: file.data, fileName: file.fileName, mime: file.mime,
@@ -456,7 +516,8 @@ struct ChatDetailView: View {
                         )
                     }
                 },
-                onError: { store.errorBanner = $0 }
+                onError: { store.errorBanner = $0 },
+                onPoll: settings.isActive ? nil : { showingPollSheet = true }
             )
             .disabled(store.isBusy)
             .help(settings.isActive ? "Вложение будет зашифровано" : "Прикрепить файл")
@@ -486,19 +547,27 @@ struct ChatDetailView: View {
                         let reply = replyTarget?.id
                         replyTarget = nil
                         Task { await store.sendSticker(sticker, chatId: chat.id, replyTo: reply) }
-                    }
+                    },
+                    onAnimoji: settings.isActive ? nil : { a in draftText += a.emoji; draftAnimojis.append(a) }
                 )
             }
 
-            TextField(
-                settings.isActive ? "Зашифрованное сообщение..." : "Сообщение...",
+            ComposerEditor(
                 text: $draftText,
-                axis: .vertical
+                elements: $draftElements,
+                height: $editorHeight,
+                placeholder: settings.isActive ? "Зашифрованное сообщение..." : "Сообщение...",
+                onSend: { send() },
+                onPasteImage: {
+                    guard let item = ClipboardImage.read() else { return false }
+                    sendPasted(item)
+                    return true
+                }
             )
-            .lineLimit(1...5)
-            .textFieldStyle(.roundedBorder)
-            .onSubmit { send() }
-            .pasteImageHandler { sendPasted($0) }
+            .frame(height: editorHeight)
+            .padding(.horizontal, 4)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.secondary.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
             .onChange(of: draftText) { old, new in
                 if editTarget == nil { store.setDraft(chatId: chat.id, text: new) }
                 if new.count > old.count, !new.trimmingCharacters(in: .whitespaces).isEmpty { store.sendTyping(chatId: chat.id) }
@@ -539,6 +608,12 @@ struct ChatDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.accentColor)
+                .contextMenu {
+                    if !settings.isActive {
+                        Button("Отправить позже…") { showingScheduleSheet = true }
+                        Button("Запланированные сообщения…") { showingScheduledList = true }
+                    }
+                }
             }
         }
         .padding(12)
@@ -565,7 +640,7 @@ struct ChatDetailView: View {
     /// Clipboard image -> photo attachment; the current draft goes along as the caption.
     private func sendPasted(_ item: ClipboardImage.Item) {
         let caption = draftText
-        draftText = ""
+        draftText = ""; draftElements = []
         Task {
             await store.sendAttachment(chatId: chat.id, data: item.data, fileName: item.fileName, mime: item.mime,
                                        caption: caption, width: item.width, height: item.height)
@@ -588,15 +663,19 @@ struct ChatDetailView: View {
 
     private func send() {
         let text = draftText
+        let rich = draftElements
         let reply = replyTarget?.id
-        draftText = ""
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        draftText = ""; draftElements = []
         replyTarget = nil
         if let edit = editTarget {
             editTarget = nil
-            Task { await store.editMessage(chatId: chat.id, messageId: edit.id, newText: text) }
+            Task { await store.editMessage(chatId: chat.id, messageId: edit.id, newText: text, richElements: rich) }
             return
         }
-        Task { await store.sendTextMessage(chatId: chat.id, plaintext: text, replyToId: reply) }
+        let picks = draftAnimojis
+        draftAnimojis = []
+        Task { await store.sendTextMessage(chatId: chat.id, plaintext: text, replyToId: reply, animojis: picks, richElements: rich) }
     }
 
     private func pinnedBar(_ lastId: String) -> some View {
@@ -694,7 +773,11 @@ private struct MessageBubbleView: View {
     var onForward: () -> Void = {}
     var onComplain: () -> Void = {}
     var onEdit: () -> Void = {}
+    var onSelect: () -> Void = {}
     @State private var showingReactions = false
+    @State private var showingReactionPicker = false
+    @State private var showingMenu = false
+    @State private var mentionedUser: Int64?
 
     private static let formatter: DateFormatter = {
         let f = DateFormatter()
@@ -749,8 +832,12 @@ private struct MessageBubbleView: View {
 
                 let body = message.bodyText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
                 let share = message.attaches.first(where: { $0.share != nil })?.share
-                if !body.isEmpty || (message.attaches.isEmpty && message.decrypted?.media == nil) {
-                    Text(linkified(body.isEmpty ? message.displayText : body))
+                if AnimojiRow.isPure(text: message.text, elements: message.elements) {
+                    AnimojiRow(text: message.text, elements: message.elements)
+                } else if message.elements.contains(where: { $0.type == "ANIMOJI" }) && body == message.text {
+                    AnimojiFlowText(text: message.text, elements: message.elements)
+                } else if !body.isEmpty || (message.attaches.isEmpty && message.decrypted?.media == nil) {
+                    Text(message.elements.isEmpty || !body.isEmpty && body != message.text ? linkified(body.isEmpty ? message.displayText : body) : linkifiedFormatted(message.text, elements: message.elements))
                         .font(.body)
                         .textSelection(.enabled)
                 }
@@ -809,12 +896,23 @@ private struct MessageBubbleView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(isMe ? (outgoingColor.map { $0.opacity(0.88) } ?? Color.accentColor.opacity(0.18)) : Color.secondary.opacity(0.12))
             )
+            #if os(macOS)
+            .modifier(MessageMenuModifier(
+                isPresented: $showingMenu, message: message, isMe: isMe, isPinned: isPinned,
+                onReact: onReact, onReply: onReply, onCopy: { copyText(message.bodyText) }, onPin: onPin,
+                onForward: onForward, onEdit: onEdit, onSelect: onSelect,
+                onWhoReacted: { showingReactions = true }, onComplain: onComplain, onDelete: onDelete))
+            #else
             .contextMenu {
                 Button("Ответить", action: onReply)
-                Button("👍") { onReact("👍") }
-                Button("❤️") { onReact("❤️") }
-                Button("🔥") { onReact("🔥") }
-                Button("Копировать") { copyText(message.bodyText) }
+                if !store.availableReactions(chatId: message.chatId).isEmpty {
+                    Button("Реакция…") { showingReactionPicker = true }
+                    ForEach(store.availableReactions(chatId: message.chatId).prefix(3), id: \.self) { e in
+                        Button(e) { onReact(e) }
+                    }
+                }
+                Button("Копировать текст") { copyText(message.bodyText) }
+                Button("Выделить", action: onSelect)
                 if !message.reactions.isEmpty {
                     Button("Кто отреагировал…") { showingReactions = true }
                 }
@@ -832,10 +930,24 @@ private struct MessageBubbleView: View {
                     Button("Удалить у всех", role: .destructive) { onDelete(true) }
                 }
             }
+            #endif
 
             if !isMe { Spacer(minLength: 60) }
         }
         .sheet(isPresented: $showingReactions) { ReactionsDetailSheet(chatId: message.chatId, messageId: message.id) }
+        .environment(\.openURL, OpenURLAction { url in
+            if url.scheme == "rmsmaks-user", let id = url.host.flatMap(Int64.init) { mentionedUser = id; return .handled }
+            return .systemAction
+        })
+        .sheet(item: Binding(get: { mentionedUser.map(MentionedUser.init) }, set: { mentionedUser = $0?.id })) { u in
+            UserProfileView(userId: u.id).environmentObject(store).frame(minWidth: 360, minHeight: 420)
+        }
+        .popover(isPresented: $showingReactionPicker) {
+            ReactionPicker(chatId: message.chatId, current: message.myReaction) { e in
+                showingReactionPicker = false
+                onReact(e)
+            }
+        }
     }
 }
 
@@ -849,10 +961,13 @@ private func copyText(_ text: String) {
 }
 
 /// Pick a chat to forward a message to.
+private struct ForwardBatch: Identifiable { let id = UUID(); let messages: [MaxMessage] }
+
 private struct ForwardSheet: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
-    let message: MaxMessage
+    let messages: [MaxMessage]
+    var onDone: () -> Void = {}
     @State private var query = ""
 
     var body: some View {
@@ -860,7 +975,8 @@ private struct ForwardSheet: View {
             List(store.chats.filter { query.isEmpty || store.resolvedChatTitle($0).localizedCaseInsensitiveContains(query) }) { chat in
                 Button {
                     Task {
-                        await store.forward(message, to: chat.id)
+                        for m in messages { await store.forward(m, to: chat.id) }
+                        onDone()
                         dismiss()
                     }
                 } label: {
@@ -1003,3 +1119,5 @@ struct ConferenceMenu: View {
         .help("Конференция: создать или присоединиться по ссылке")
     }
 }
+
+private struct MentionedUser: Identifiable { let id: Int64 }

@@ -22,6 +22,7 @@ enum EmojiCatalog {
 struct EmojiStickerPanel: View {
     let onEmoji: (String) -> Void
     let onSticker: (Sticker) -> Void
+    var onAnimoji: ((Animoji) -> Void)? = nil
     @State private var tab = 0
     @State private var category = "recent"
     @AppStorage("recentEmoji") private var recentRaw = ""
@@ -34,6 +35,7 @@ struct EmojiStickerPanel: View {
             Picker("", selection: $tab) {
                 Text("Эмодзи").tag(0)
                 Text("Стикеры").tag(1)
+                if onAnimoji != nil { Text("Анимодзи").tag(2) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -59,6 +61,8 @@ struct EmojiStickerPanel: View {
                         Text("Здесь будут последние эмодзи").font(.caption).foregroundStyle(.secondary).padding()
                     }
                 }
+            } else if tab == 2, let onAnimoji {
+                AnimojiPicker(onPick: onAnimoji)
             } else {
                 StickerPicker(onPick: onSticker)
                     .padding(.horizontal, 8)

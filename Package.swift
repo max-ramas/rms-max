@@ -22,6 +22,8 @@ let package = Package(
         // Google WebRTC (BSD) as built by LiveKit: adds audio device selection, frame encryption
         // (E2E calls) and desktop capture. Media only — no telemetry endpoints.
         .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "150.7871.08"),
+        // Lottie (MIT, Airbnb): plays the animated emoji; renders locally, no network or telemetry.
+        .package(url: "https://github.com/airbnb/lottie-ios.git", exact: "4.5.1"),
     ],
     targets: [
         .target(
@@ -31,7 +33,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "RMSMaxApp",
-            dependencies: ["RMSMaxCore"],
+            dependencies: ["RMSMaxCore", .product(name: "Lottie", package: "lottie-ios")],
             path: "Sources/RMSMaxApp"
         ),
         .testTarget(

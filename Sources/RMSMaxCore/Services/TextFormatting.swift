@@ -8,20 +8,31 @@ public struct TextElement: Codable, Sendable, Equatable {
     public var length: Int
     public var url: String?
     public var entityId: Int64?
+    /// ANIMOJI: animation of the emoji (`attributes.animojiLottieUrl`) and its pack (`attributes.animojiSetId`).
+    public var animojiLottieUrl: String?
+    public var animojiSetId: String?
 
-    public init(type: String, from: Int, length: Int, url: String? = nil, entityId: Int64? = nil) {
+    public init(type: String, from: Int, length: Int, url: String? = nil, entityId: Int64? = nil,
+                animojiLottieUrl: String? = nil, animojiSetId: String? = nil) {
         self.type = type; self.from = from; self.length = length; self.url = url; self.entityId = entityId
+        self.animojiLottieUrl = animojiLottieUrl; self.animojiSetId = animojiSetId
     }
 
     init?(_ v: JSONValue) {
         guard let type = v["type"]?.stringValue else { return nil }
         self.init(type: type, from: Int(v["from"]?.int64Value ?? 0), length: Int(v["length"]?.int64Value ?? 0),
-                  url: v["attributes"]?["url"]?.stringValue, entityId: v["entityId"]?.int64Value)
+                  url: v["attributes"]?["url"]?.stringValue, entityId: v["entityId"]?.int64Value,
+                  animojiLottieUrl: v["attributes"]?["animojiLottieUrl"]?.stringValue,
+                  animojiSetId: v["attributes"]?["animojiSetId"]?.stringValue ?? v["attributes"]?["animojiSetId"]?.int64Value.map(String.init))
     }
 
     public var json: JSONValue {
         var o: [String: JSONValue] = ["type": .string(type), "from": .int(Int64(from)), "length": .int(Int64(length))]
-        if let url { o["attributes"] = .object(["url": .string(url)]) }
+        var attrs: [String: JSONValue] = [:]
+        if let url { attrs["url"] = .string(url) }
+        if let animojiLottieUrl { attrs["animojiLottieUrl"] = .string(animojiLottieUrl) }
+        if let animojiSetId { attrs["animojiSetId"] = .string(animojiSetId) }
+        if !attrs.isEmpty { o["attributes"] = .object(attrs) }
         if let entityId { o["entityId"] = .int(entityId) }
         return .object(o)
     }

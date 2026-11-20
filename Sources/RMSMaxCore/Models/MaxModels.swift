@@ -662,6 +662,10 @@ public struct MaxMessage: Codable, Sendable, Equatable, Identifiable {
     public var forwardedFromId: Int64? = nil
     /// Channel posts: number of comments (`commentsInfo.totalCount`); nil when comments are not enabled for the post.
     public var commentsCount: Int? = nil
+    /// My own reaction on this message (`reactionInfo.yourReaction`); MAX allows one per person.
+    public var myReaction: String? = nil
+    /// Formatting ranges (bold, links, mentions…) of `text`; empty for plain messages.
+    public var elements: [TextElement] = []
 
     /// Text body only (decrypted when E2E), without attachment placeholders.
     public var bodyText: String {

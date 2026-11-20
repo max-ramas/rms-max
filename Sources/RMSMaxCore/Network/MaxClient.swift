@@ -454,7 +454,7 @@ public actor MaxClient {
         try await sendAndWait(opcode: 48, payload: .object(["chatIds": .array(chatIds.map { .int($0) })]))
     }
 
-    public func fetchHistory(chatId: Int64, from: Int64? = nil, backward: Int = 50, forward: Int = 0, getChat: Bool = true) async throws -> MaxResponse {
+    public func fetchHistory(chatId: Int64, from: Int64? = nil, backward: Int = 50, forward: Int = 0, getChat: Bool = true, delayed: Bool = false) async throws -> MaxResponse {
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         return try await sendAndWait(
             opcode: 49,
@@ -466,7 +466,7 @@ public actor MaxClient {
                 "forwardTime": .int(0),
                 "getChat": .bool(getChat),
                 "from": .int(from ?? nowMs),
-                "itemType": .string("REGULAR"), // server enum: REGULAR | DELAYED
+                "itemType": .string(delayed ? "DELAYED" : "REGULAR"), // server enum: REGULAR | DELAYED
                 "getMessages": .bool(true),
                 "interactive": .bool(true),
             ])
@@ -485,16 +485,21 @@ public actor MaxClient {
         text: String,
         replyTo: Int64? = nil,
         attaches: [JSONValue] = [],
-        notify: Bool = true
+        notify: Bool = true,
+        elements: [JSONValue] = [],
+        fireAt: Date? = nil
     ) async throws -> MaxResponse {
         let cid = -Int64(Date().timeIntervalSince1970 * 1000)
         var msgObj: [String: JSONValue] = [
             "cid": .int(cid),
-            "elements": .array([]),
+            "elements": .array(elements),
             "attaches": .array(attaches),
         ]
         if !text.isEmpty {
             msgObj["text"] = .string(text)
+        }
+        if let fireAt {
+            msgObj["delayedAttributes"] = .object(["timeToFire": .int(Int64(fireAt.timeIntervalSince1970 * 1000))])
         }
         if let replyTo {
             msgObj["link"] = .object(["type": .string("REPLY"), "messageId": .int(replyTo)])
@@ -522,26 +527,26 @@ public actor MaxClient {
         )
     }
 
-    public func editMessage(chatId: Int64, messageId: Int64, text: String) async throws -> MaxResponse {
+    public func editMessage(chatId: Int64, messageId: Int64, text: String, elements: [JSONValue] = []) async throws -> MaxResponse {
         try await sendAndWait(
             opcode: 67,
             payload: .object([
                 "chatId": .int(chatId),
                 "messageId": .int(messageId),
                 "text": .string(text),
-                "elements": .array([]),
+                "elements": .array(elements),
             ])
         )
     }
 
-    public func deleteMessages(chatId: Int64, messageIds: [Int64], forMe: Bool) async throws -> MaxResponse {
+    public func deleteMessages(chatId: Int64, messageIds: [Int64], forMe: Bool, delayed: Bool = false) async throws -> MaxResponse {
         try await sendAndWait(
             opcode: 66,
             payload: .object([
                 "chatId": .int(chatId),
                 "messageIds": .array(messageIds.map { .int($0) }),
                 "forMe": .bool(forMe),
-                "itemType": .string("REGULAR"),
+                "itemType": .string(delayed ? "DELAYED" : "REGULAR"),
             ])
         )
     }

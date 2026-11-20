@@ -169,8 +169,9 @@ final class PermissionStateTests: XCTestCase {
     func testNotificationStateMapping() {
         XCTAssertEqual(PermissionState.from(.notDetermined, alertsOn: false, soundOn: false), .notDetermined)
         XCTAssertEqual(PermissionState.from(.denied, alertsOn: true, soundOn: true), .denied)
-        XCTAssertEqual(PermissionState.from(.authorized, alertsOn: true, soundOn: false), .granted)
-        XCTAssertEqual(PermissionState.from(.authorized, alertsOn: false, soundOn: true), .granted)
+        XCTAssertEqual(PermissionState.from(.authorized, alertsOn: true, soundOn: true), .granted)
+        XCTAssertEqual(PermissionState.from(.authorized, alertsOn: true, soundOn: false), .silenced, "no sound: the user wants to hear messages")
+        XCTAssertEqual(PermissionState.from(.authorized, alertsOn: false, soundOn: true), .silenced, "no banner (style «None»): nothing to see")
         XCTAssertEqual(PermissionState.from(.authorized, alertsOn: false, soundOn: false), .silenced,
                        "allowed in the system but no banner and no sound: the user would still see nothing")
         XCTAssertFalse(PermissionState.silenced.isUsable)
@@ -388,3 +389,135 @@ final class CallAttachTests: XCTestCase {
         XCTAssertEqual(m.displayText, "Видеозвонок · 1:23", "chat-list preview")
     }
 }
+
+@MainActor
+final class ReactionsTests: XCTestCase {
+    private func store(with msg: MaxMessage) -> AppStore {
+        let s = AppStore(); s.messagesByChat[1] = [msg]; return s
+    }
+
+    func testAdjustReplacesMyReactionAndKeepsCounts() {
+        var m = AppStore().parseMessage(.object(["id": .string("9"), "sender": .int(2), "time": .int(1),
+            "reactionInfo": .object(["yourReaction": .string("👍"), "counters": .array([
+                .object(["reaction": .string("👍"), "count": .int(2)]), .object(["reaction": .string("🔥"), "count": .int(1)])])])]), chatId: 1)
+        XCTAssertEqual(m.myReaction, "👍")
+        let s = store(with: m)
+        s.adjustReaction(chatId: 1, messageId: "9", remove: "👍", add: "❤️")
+        m = s.messagesByChat[1]![0]
+        XCTAssertEqual(m.myReaction, "❤️")
+        XCTAssertEqual(m.reactions.first { $0.reaction == "👍" }?.count, 1)
+        XCTAssertEqual(m.reactions.first { $0.reaction == "❤️" }?.count, 1)
+        s.adjustReaction(chatId: 1, messageId: "9", remove: "🔥", add: nil)
+        XCTAssertNil(s.messagesByChat[1]![0].reactions.first { $0.reaction == "🔥" }, "a count of zero disappears")
+    }
+
+    func testAvailableReactionsFollowTheChatSettings() {
+        let s = AppStore()
+        XCTAssertEqual(s.availableReactions(chatId: 5), AppStore.defaultReactions)
+        s.chatReactions[5] = ChatReactions(isActive: false, ids: [])
+        XCTAssertTrue(s.availableReactions(chatId: 5).isEmpty, "reactions switched off in this chat")
+        s.chatReactions[5] = ChatReactions(isActive: true, ids: ["👍", "🔥", "anim_17"])
+        XCTAssertEqual(s.availableReactions(chatId: 5), ["👍", "🔥"], "animated ids are left to the server")
+    }
+}
+
+@MainActor
+final class FormattingWireTests: XCTestCase {
+    func testIncomingElementsParsed() {
+        let m = AppStore().parseMessage(.object(["id": .string("1"), "sender": .int(2), "time": .int(1), "text": .string("hi bold"),
+            "elements": .array([.object(["type": .string("STRONG"), "from": .int(3), "length": .int(4)])])]), chatId: 1)
+        XCTAssertEqual(m.elements, [TextElement(type: "STRONG", from: 3, length: 4)])
+    }
+    func testMentionInOutgoingText() {
+        let r = TextFormatter.parse("привет @Иван, **ок**", mentions: [MentionCandidate(id: 7, name: "Иван")])
+        XCTAssertEqual(r.text, "привет @Иван, ок")
+        XCTAssertTrue(r.elements.contains { $0.type == "USER_MENTION" && $0.entityId == 7 })
+        XCTAssertTrue(r.elements.contains { $0.type == "STRONG" })
+    }
+}
+
+@MainActor
+final class AnimojiTests: XCTestCase {
+    func testAnimojiElementsMarkTheNextOccurrences() {
+        let a = AnimojiSample.make(id: 7, emoji: "😀"), b = AnimojiSample.make(id: 8, emoji: "🔥")
+        let els = AppStore.animojiElements(in: "hi 😀 and 🔥 😀", picks: [a, b, a])
+        XCTAssertEqual(els.map(\.entityId), [7, 8, 7])
+        XCTAssertEqual(els.map(\.from), [3, 10, 13], "UTF-16 offsets")
+        XCTAssertTrue(els.allSatisfy { $0.type == "ANIMOJI" && $0.length == 2 })
+    }
+
+    func testElementRoundTripKeepsAnimojiAttributes() {
+        let e = TextElement(type: "ANIMOJI", from: 0, length: 2, entityId: 5, animojiLottieUrl: "https://x/y.json", animojiSetId: "9")
+        XCTAssertEqual(TextElement(e.json), e)
+    }
+
+    func testAnimojiAndSetParsing() {
+        let a = Animoji.parse(.object(["id": .int(1), "emoji": .string("😀"), "lottieUrl": .string("u"), "iconUrl": .string("i"), "setId": .int(3)]))
+        XCTAssertEqual(a?.animationURL, "u")
+        let s = AnimojiSet.parse(.object(["id": .int(3), "name": .string("Набор"), "iconUrl": .string("i"), "animojiIds": .array([.int(1), .int(2)])]))
+        XCTAssertEqual(s?.animojiIds, [1, 2])
+    }
+}
+
+enum AnimojiSample {
+    static func make(id: Int64, emoji: String) -> Animoji { Animoji.parse(.object(["id": .int(id), "emoji": .string(emoji)]))! }
+}
+
+final class RichTextTests: XCTestCase {
+    func testElementsRoundTrip() {
+        let els = [TextElement(type: "STRONG", from: 0, length: 5), TextElement(type: "EMPHASIZED", from: 3, length: 4),
+                   TextElement(type: "LINK", from: 8, length: 3, url: "https://a.b")]
+        let s = RichText.attributed("hello world!", elements: els)
+        let back = RichText.elements(from: s)
+        XCTAssertEqual(Set(back.map { "\($0.type):\($0.from):\($0.length):\($0.url ?? "")" }),
+                       Set(els.map { "\($0.type):\($0.from):\($0.length):\($0.url ?? "")" }))
+    }
+
+    func testTouchingRunsMergeAndPlainTextHasNone() {
+        let s = NSMutableAttributedString(string: "abcdef")
+        s.addAttribute(RichFormat.strong.key, value: true, range: NSRange(location: 0, length: 3))
+        s.addAttribute(RichFormat.strong.key, value: true, range: NSRange(location: 3, length: 3))
+        XCTAssertEqual(RichText.elements(from: s), [TextElement(type: "STRONG", from: 0, length: 6)])
+        XCTAssertTrue(RichText.elements(from: NSAttributedString(string: "plain")).isEmpty)
+    }
+
+    func testTrimShiftsAndClipsElements() {
+        let els = [TextElement(type: "STRONG", from: 0, length: 4), TextElement(type: "EMPHASIZED", from: 5, length: 3)]
+        let r = RichText.shifted(els, original: "  abc de \n", trimmed: "abc de")
+        XCTAssertEqual(r.map { "\($0.type):\($0.from):\($0.length)" }, ["STRONG:0:2", "EMPHASIZED:3:3"])
+    }
+
+    func testTypedMentionBecomesElementOnce() {
+        let m = RichText.mentionElements(in: "hi @Иван and @Иван", candidates: [MentionCandidate(id: 7, name: "Иван")], existing: [])
+        XCTAssertEqual(m.map(\.from), [3, 13])
+    }
+}
+
+final class ConferenceLinkTests: XCTestCase {
+    func testBareTokenBecomesJoinURL() {
+        XCTAssertEqual(AppStore.conferenceURL("c6BsFPvw00bfhRZNWW6N"), "https://max.ru/joincall/c6BsFPvw00bfhRZNWW6N")
+        XCTAssertEqual(AppStore.conferenceURL(" https://max.ru/joincall/abc "), "https://max.ru/joincall/abc")
+    }
+}
+
+final class DeepLinkAndSoundTests: XCTestCase {
+    func testDeepLinksFromBothSchemes() {
+        XCTAssertEqual(MaxDeepLink.parse(URL(string: "max://max.ru/joincall/abc")!), .joinCall(token: "abc"))
+        XCTAssertEqual(MaxDeepLink.parse(URL(string: "https://max.ru/joincall/abc")!), .joinCall(token: "abc"))
+        XCTAssertEqual(MaxDeepLink.parse(URL(string: "max://join/HASH")!), .joinChat(hash: "HASH"))
+        XCTAssertEqual(MaxDeepLink.parse(URL(string: "https://max.ru/c/-123/456")!), .message(chatId: -123, messageId: "456"))
+        XCTAssertNil(MaxDeepLink.parse(URL(string: "https://example.com/join/x")!))
+        XCTAssertEqual(MaxDeepLink.joinChat(hash: "H").webURL, "https://max.ru/join/H")
+    }
+
+    @MainActor func testEveryToneIsValidAudio() throws {
+        for t in [CallSounds.Tone.ringtone, .ringback, .connected, .busy, .ended] {
+            let d = CallSounds.wav(for: t)
+            XCTAssertEqual(String(data: d.prefix(4), encoding: .ascii), "RIFF")
+            XCTAssertGreaterThan(d.count, 5000)
+            _ = try AVAudioPlayerProbe.open(d)
+        }
+    }
+}
+import AVFoundation
+enum AVAudioPlayerProbe { static func open(_ d: Data) throws -> AVAudioPlayer { try AVAudioPlayer(data: d) } }
