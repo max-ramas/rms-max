@@ -328,3 +328,42 @@ final class MediaCacheManagerTests: XCTestCase {
         XCTAssertTrue(MediaCache.stats().isEmpty)
     }
 }
+
+final class TextFormattingTests: XCTestCase {
+    func testMarkdownBecomesElements() {
+        let r = TextFormatter.parse("Привет **мир** и _курсив_, `код` ~~нет~~ __под__")
+        XCTAssertEqual(r.text, "Привет мир и курсив, код нет под")
+        let types = r.elements.map(\.type)
+        XCTAssertEqual(types, ["STRONG", "EMPHASIZED", "MONOSPACED", "STRIKETHROUGH", "UNDERLINE"])
+        XCTAssertEqual(r.elements[0].from, 7); XCTAssertEqual(r.elements[0].length, 3)   // «мир»
+        XCTAssertEqual(r.elements[1].from, 13); XCTAssertEqual(r.elements[1].length, 6)  // «курсив»
+    }
+
+    func testPositionsAreUTF16Units() {
+        let r = TextFormatter.parse("😀 **a**")
+        XCTAssertEqual(r.text, "😀 a")
+        XCTAssertEqual(r.elements[0].from, 3, "the emoji is two UTF-16 units")
+    }
+
+    func testUnmatchedAndWordInternalMarkersStayLiteral() {
+        XCTAssertEqual(TextFormatter.parse("snake_case_name и 2*3*4").elements.count, 0)
+        XCTAssertEqual(TextFormatter.parse("**не закрыто").text, "**не закрыто")
+        XCTAssertTrue(TextFormatter.parse("** **").elements.isEmpty)
+    }
+
+    func testLinkQuoteHeadingAndMention() {
+        let r = TextFormatter.parse("# Тема\n> цитата\n[сайт](https://example.com) @Иван Петров привет",
+                                    mentions: [MentionCandidate(id: 7, name: "Иван Петров")])
+        XCTAssertEqual(r.text, "Тема\nцитата\nсайт @Иван Петров привет")
+        XCTAssertEqual(r.elements.map(\.type), ["HEADING", "QUOTE", "LINK", "USER_MENTION"])
+        XCTAssertEqual(r.elements[2].url, "https://example.com")
+        XCTAssertEqual(r.elements[3].entityId, 7)
+        XCTAssertEqual(r.elements[3].length, 12)
+    }
+
+    func testAttributedRendering() {
+        let a = FormattedText.attributed("a жир b", elements: [TextElement(type: "STRONG", from: 2, length: 3)])
+        XCTAssertEqual(String(a.characters), "a жир b")
+        XCTAssertNotNil(a.runs.first { $0.inlinePresentationIntent == .stronglyEmphasized })
+    }
+}
