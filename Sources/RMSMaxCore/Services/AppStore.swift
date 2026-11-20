@@ -82,6 +82,12 @@ public final class AppStore: ObservableObject {
     @Published public internal(set) var failedSends: [Int64: [FailedSend]] = [:]
     /// Comments of channel posts (op 49 with `postId`), keyed "chatId_postId".
     @Published public internal(set) var commentsByPost: [String: [MaxMessage]] = [:]
+    /// Attachments whose media is on the device already (triggers views that wait for a prefetch).
+    @Published public internal(set) var mediaReady: Set<String> = []
+    var prefetchInFlight: Set<String> = []
+    let prefetchGate = PrefetchGate(limit: 3)
+    /// Mobile data / hotspot: auto-download is restricted to voice messages unless the user allows more.
+    var networkIsMetered = false
     var typingTokens: [String: Int] = [:]
     var lastTypingSent: [Int64: Date] = [:]
     static let sendTypingKey = "rmsmaks.privacy.sendTyping"
@@ -559,6 +565,8 @@ public final class AppStore: ObservableObject {
         let monitor = NWPathMonitor()
         let lastStatus = PathStatusBox()
         monitor.pathUpdateHandler = { [weak self] path in
+            let metered = path.isExpensive || path.isConstrained
+            Task { @MainActor in self?.networkIsMetered = metered }
             // React only when the network comes back (unsatisfied -> satisfied), not on every path update:
             // macOS reports updates often, and each one used to reset the back-off to 1 s.
             let wasDown = lastStatus.swap(path.status) != .satisfied
@@ -708,6 +716,7 @@ public final class AppStore: ObservableObject {
             Task { await self.loadPinned(chatId: chatId) }
             Task { await self.loadPostStats(chatId: chatId, messages: resolved) }
             Task { await self.refreshCommentCounts(chatId: chatId, messages: resolved) }
+            self.prefetchMedia(resolved)
             if let last = resolved.last, let msgId = Int64(last.id) {
                 _ = try? await client.readMessage(chatId: chatId, messageId: msgId, markMs: last.timeMs)
                 if let idx = chats.firstIndex(where: { $0.id == chatId }) {
@@ -1373,6 +1382,7 @@ public final class AppStore: ObservableObject {
             list.sort { $0.timeMs < $1.timeMs }
         }
         messagesByChat[chatId] = list
+        if isIncomingPush { prefetchMedia([msg]) }
 
         if let idx = chats.firstIndex(where: { $0.id == chatId }) {
             chats[idx].lastMessage = msg

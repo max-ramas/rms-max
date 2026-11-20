@@ -310,6 +310,7 @@ struct VideoMessageView: View {
     @State private var failed = false
     @State private var playing = false
     @State private var status: String?
+    @State private var previewing = false   // cached clip loops silently, like Telegram's circles
 
     private var durationText: String {
         let s = Int((attachment.durationMs ?? 0) / (((attachment.durationMs ?? 0) > 1000) ? 1000 : 1))
@@ -322,7 +323,7 @@ struct VideoMessageView: View {
             if let player {
                 PlayerLayerView(player: player).clipShape(Circle())
             }
-            if player == nil || !playing {
+            if player == nil || (!playing && !previewing) {
                 VStack(spacing: 4) {
                     if loading { ProgressView().tint(.white) }
                     else { Image(systemName: failed ? "exclamationmark.triangle" : "play.fill").font(.system(size: 34)).foregroundStyle(.white) }
@@ -334,12 +335,41 @@ struct VideoMessageView: View {
         .contentShape(Circle())
         .onTapGesture { toggle() }
         .help("Видеосообщение")
-        .onDisappear { player?.pause(); playing = false }
+        .onAppear { startPreviewIfCached() }
+        .onChange(of: store.mediaReady) { _, _ in startPreviewIfCached() }
+        .onDisappear { player?.pause(); playing = false; previewing = false }
+    }
+
+    /// The clip is already on the device (prefetched): show it at once, muted and looping.
+    private func startPreviewIfCached() {
+        guard player == nil, !loading, let file = store.cachedMediaFile(for: attachment) else { return }
+        let item = AVPlayerItem(url: file)
+        let p = AVPlayer(playerItem: item)
+        p.isMuted = true
+        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in
+            // after a pass with sound go back to the silent loop; otherwise just loop
+            p.seek(to: .zero)
+            if playing { playing = false; previewing = true; p.isMuted = true }
+            p.play()
+        }
+        player = p
+        previewing = true
+        p.play()
     }
 
     private func toggle() {
         if let player {
-            if playing { player.pause(); playing = false } else { player.play(); playing = true }
+            if previewing {            // first tap: sound on, from the beginning
+                previewing = false
+                player.isMuted = false
+                player.seek(to: .zero)
+                player.play()
+                playing = true
+            } else if playing {
+                player.pause(); playing = false
+            } else {
+                player.play(); playing = true
+            }
             return
         }
         guard !loading, Int64(message.id) != nil, attachment.videoId != nil else { failed = true; return }

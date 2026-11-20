@@ -277,3 +277,54 @@ final class VideoFileCheckTests: XCTestCase {
         XCTAssertFalse(MediaHTTP.looksLikeVideo(Data("10".utf8)), "the CDN's error body")
     }
 }
+
+final class MediaCacheManagerTests: XCTestCase {
+    private func attach(_ type: String, size: UInt64? = nil, videoType: Int? = nil) -> MaxAttachment {
+        var a = MaxAttachment(id: "1", type: type, title: nil, url: nil, fileId: nil, photoId: nil, videoId: 1, width: nil, height: nil,
+                              durationMs: nil, mime: nil, size: size)
+        a.videoType = videoType
+        return a
+    }
+
+    func testAutoDownloadRules() {
+        var r = MediaAutoDownload()
+        XCTAssertTrue(r.shouldDownload(attach("VIDEO", videoType: 1)), "circles are fetched in advance")
+        XCTAssertTrue(r.shouldDownload(attach("AUDIO")))
+        XCTAssertTrue(r.shouldDownload(attach("PHOTO")))
+        XCTAssertTrue(r.shouldDownload(attach("VIDEO", size: 10 * 1_048_576)))
+        XCTAssertFalse(r.shouldDownload(attach("VIDEO", size: 80 * 1_048_576)), "over the size limit")
+        XCTAssertFalse(r.shouldDownload(attach("VIDEO")), "unknown size is not downloaded blindly")
+        XCTAssertFalse(r.shouldDownload(attach("FILE", size: 30 * 1_048_576)))
+        r.fileMaxMB = 0
+        XCTAssertFalse(r.shouldDownload(attach("FILE", size: 100)))
+        XCTAssertTrue(r.shouldDownload(attach("AUDIO"), metered: true), "voice only on a metered network")
+        XCTAssertFalse(r.shouldDownload(attach("PHOTO"), metered: true))
+        r.onMeteredNetwork = true
+        XCTAssertTrue(r.shouldDownload(attach("PHOTO"), metered: true))
+    }
+
+    func testKindsAndEvictionOrder() throws {
+        XCTAssertEqual(MediaKind.of(key: "video_5"), .video)
+        XCTAssertEqual(MediaKind.of(key: "audio_5"), .voice)
+        XCTAssertEqual(MediaKind.of(key: "enc_5"), .file)
+        XCTAssertEqual(MediaKind.of(key: "img"), .small)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("rmscache_\(UUID().uuidString)")
+        MediaCache.overrideDirectory = tmp
+        defer { MediaCache.overrideDirectory = nil; try? FileManager.default.removeItem(at: tmp) }
+        func put(_ key: String, _ name: String, bytes: Int, age: TimeInterval) throws {
+            let u = MediaCache.url(key: key, fileName: name)
+            try Data(count: bytes).write(to: u)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -age)], ofItemAtPath: u.path)
+        }
+        try put("video_1", "a.mp4", bytes: 1000, age: 300)   // oldest
+        try put("photo_2", "b.jpg", bytes: 1000, age: 200)
+        try put("audio_3", "c.caf", bytes: 1000, age: 100)   // newest
+        XCTAssertEqual(MediaCache.stats()[.video], 1000)
+        MediaCache.enforceLimit(2000)                        // 3000 > 2000 → down to 85 % (1700): the two oldest go
+        XCTAssertNil(MediaCache.stats()[.video])
+        XCTAssertNil(MediaCache.stats()[.photo])
+        XCTAssertEqual(MediaCache.stats()[.voice], 1000, "the most recently used file survives")
+        MediaCache.clear(kinds: [.voice])
+        XCTAssertTrue(MediaCache.stats().isEmpty)
+    }
+}

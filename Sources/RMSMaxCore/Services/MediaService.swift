@@ -372,7 +372,11 @@ public enum MediaKeys {
 // MARK: - Local media cache
 
 public enum MediaCache {
+    /// Tests point the cache at a temporary folder.
+    nonisolated(unsafe) static var overrideDirectory: URL?
+
     static var directory: URL {
+        if let o = overrideDirectory { try? FileManager.default.createDirectory(at: o, withIntermediateDirectories: true); return o }
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         let dir = base.appendingPathComponent("RMSMaxMedia", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -528,6 +532,13 @@ extension AppStore {
 
     /// Returns a local file for an attachment, downloading (and for E2E media, decrypting) it when needed.
     public func localFile(for attachment: MaxAttachment, in message: MaxMessage) async throws -> URL {
+        let url = try await resolveLocalFile(for: attachment, in: message)
+        MediaCache.touch(url)                       // last use = freshness for the eviction order
+        MediaCache.scheduleLimitCheck()
+        return url
+    }
+
+    private func resolveLocalFile(for attachment: MaxAttachment, in message: MaxMessage) async throws -> URL {
         let chatId = message.chatId
         guard let messageId = Int64(message.id) else { throw MediaError.noDownloadURL }
 

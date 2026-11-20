@@ -135,6 +135,8 @@ struct SettingsView: View {
                 Text("Фон и цвет ваших сообщений. Для отдельного чата тему можно задать кнопкой с палитрой в его заголовке.")
             }
 
+            DataAndStorageSection()
+
             PermissionsSection()
 
             UpdateSettingsSection()
