@@ -53,7 +53,7 @@ public extension AppStore {
         guard let mid = Int64(message.id) else { return }
         let cid = -Int64(Date().timeIntervalSince1970 * 1000)
         do {
-            _ = try await client.sendAndWait(opcode: 64, payload: .object([
+            let resp = try await client.sendAndWait(opcode: 64, payload: .object([
                 "chatId": .int(targetChatId),
                 "message": .object([
                     "cid": .int(cid),
@@ -62,6 +62,7 @@ public extension AppStore {
                 ]),
                 "notify": .bool(true),
             ]))
+            if let msg = resp.payload["message"] { upsertMessage(parseMessage(msg, chatId: targetChatId), inChat: targetChatId, isIncomingPush: false) }
         } catch {
             errorBanner = "Не удалось переслать: \(error.localizedDescription)"
         }

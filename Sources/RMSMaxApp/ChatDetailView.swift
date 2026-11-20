@@ -395,6 +395,17 @@ struct ChatDetailView: View {
             .lineLimit(1...5)
             .textFieldStyle(.roundedBorder)
             .onSubmit { send() }
+            .pasteImageHandler { sendPasted($0) }
+
+            #if os(iOS)
+            if UIPasteboard.general.hasImages {
+                Button { if let item = ClipboardImage.read() { sendPasted(item) } } label: {
+                    Image(systemName: "doc.on.clipboard").font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("Вставить изображение из буфера")
+            }
+            #endif
 
             if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button {
@@ -419,6 +430,16 @@ struct ChatDetailView: View {
             }
         }
         .padding(12)
+    }
+
+    /// Clipboard image -> photo attachment; the current draft goes along as the caption.
+    private func sendPasted(_ item: ClipboardImage.Item) {
+        let caption = draftText
+        draftText = ""
+        Task {
+            await store.sendAttachment(chatId: chat.id, data: item.data, fileName: item.fileName, mime: item.mime,
+                                       caption: caption, width: item.width, height: item.height)
+        }
     }
 
     private func sendVoice() {

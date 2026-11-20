@@ -111,7 +111,8 @@ public extension AppStore {
         ]
         if let l = sticker.lottieUrl { attach["lottieUrl"] = .string(l) }
         do {
-            _ = try await client.sendMessage(chatId: chatId, text: "", replyTo: replyTo.flatMap { Int64($0) }, attaches: [.object(attach)])
+            let resp = try await client.sendMessage(chatId: chatId, text: "", replyTo: replyTo.flatMap { Int64($0) }, attaches: [.object(attach)])
+            if let msg = resp.payload["message"] { upsertMessage(parseMessage(msg, chatId: chatId), inChat: chatId, isIncomingPush: false) }
             rememberRecentSticker(sticker)
         } catch {
             errorBanner = "Стикер не отправлен: \(error.localizedDescription)"
