@@ -1,77 +1,53 @@
 # RMS MAKS
 
-Нативный мультиплатформенный клиент для **Max** на **Swift 5.10+ / SwiftUI** для **macOS 14+ (Apple Silicon)**, **iOS 17+** и **iPadOS 17+**.
+Нативный клиент мессенджера MAX для **macOS 14+** (Apple Silicon и Intel), **iOS 17+** и **iPadOS 17+** на Swift/SwiftUI — без телеметрии, со сквозным шифрованием и звонками, совместимыми с официальным клиентом.
 
-Проводной протокол (Mobile TLS MsgPack + LZ4, WebSocket JSON), сквозное шифрование 1:1 и групп, зашифрованные звонки (SFrame-совместимый AES-GCM) и криптография полностью реализованы на нативном Swift (`CryptoKit`, `Network.framework`, `Compression`, `LocalAuthentication`, `UserNotifications`, `Security`).
+## Скачать
 
----
+| Платформа | Файл | Ссылка |
+| --- | --- | --- |
+| macOS | DMG, подписан Developer ID | https://update.rms-ds.com/get/rms-maks/dmg |
+| iPhone / iPad | IPA без подписи (SideStore / AltStore) | https://update.rms-ds.com/get/rms-maks/ipa |
 
-## Архитектура
+Ссылки всегда ведут на последнюю стабильную версию. Все версии и примечания к выпуску: https://update.rms-ds.com/v1/rms-maks/releases. Релизы подписаны ключом minisign RMS; на GitHub они не публикуются.
 
-### `RMSMaxCore` (`Sources/RMSMaxCore/`)
-- **Models**: `Models/MaxModels.swift` — `JSONValue`, `MaxIdentity` (mobile/web), `MaxRequest`/`MaxResponse`, `SyncState`, `MaxChat`, `MaxMessage`, `MaxContact`, `MaxAccount`, `ChatE2ESettings`, `ActiveCallState`, `MediaDescriptor`.
-- **Protocol**:
-  - `Protocol/MsgPack.swift` — кодировщик/декодер MessagePack с поддержкой бинарных ключей протокола Max (`mode`, `chatCacheFingerprint`, `chatsCountGroups`, `wave`, `previewData`).
-  - `Protocol/LZ4Decompressor.swift` — блочный декомпрессор LZ4 для сжатых ответов синхронизации.
-  - `Protocol/ApkFingerprint.swift` — генерация 96-байтного SHA-256 fingerprint APK (`26.31.0`, `26.30.1`, `26.30.0`, `26.11.1`).
-- **Network**:
-  - `Network/MaxTransport.swift` — `MobileTLSTransport` (`NWConnection` TLS 1.2+ на `api2.oneme.ru:443` с корневым сертификатом Минцифры / Russian Trusted Root CA + системным доверием), `WebSocketTransport` (`wss://ws-api.oneme.ru/websocket`), `MaxVoiceChannel` (сигналинг звонков).
-  - `Network/MaxClient.swift` — actor-клиент API Max (авторизация, SMS/2FA/QR, синк чатов и истории, контакты, файлы, звонки, групповые конференции); **`telemetryMode` по умолчанию `"disabled"`**, внешние IP-пробы отсутствуют.
-- **Crypto**:
-  - `Crypto/AsymmetricCrypto.swift` — Ed25519 + X25519 (`0x01` init, `0x02` accept, `0x03` group key announce, `0x04` group key wrap в wire-формате `rmp_serde`).
-  - `Crypto/SymmetricCrypto.swift` — ChaCha20-Poly1305, чистый Swift BLAKE2b + RFC 9106 Argon2id (`m=19456`, `t=2`, `p=1`, `tagLen=32`), медиа-конверт `MediaCrypto` (`0x8F 0x3D` + legacy).
-  - `Crypto/E2EProtocol.swift` — заголовок флагов, соль чата, raw deflate (`COMPRESSION_ZLIB`), упаковка и распаковка текстовых, медиа- и управляющих пакетов.
-  - `Crypto/Obfuscation.swift` — китайская обфускация (`U+4E00..`) и Base64-режим.
-  - `Crypto/EmojiFingerprint.swift` — 256-эмодзи отпечаток ключей 1:1 и звонков.
-- **Calls**:
-  - `Calls/CallFrameHeader.swift` — вычисление незашифрованного префикса для SFU/WebRTC (Opus `1`, VP8 `10`/`3`, H.264 Annex-B SPS/PPS/IDR/slice).
-  - `Calls/CallEncryption.swift` — SFrame-совместимое шифрование медиакадров (`AES-GCM-128`, `HKDF-SHA256`), эфемерный `P-256 ECDH` для 1:1 звонков и симметричный групповой режим.
-- **Services**:
-  - `Services/SecureStore.swift` — шифрованное локальное хранилище (`RMSX1` ChaCha20-Poly1305) с мастер-ключом в Keychain (и защищённым локальным fallback для CLI-тестов без бандла), плюс `TrackerBlocker` (`sdk-api.apptracer.ru`, `mytracker.com`, `mc.yandex.ru`, `stat.oneme.ru` и др.).
-  - `Services/NotificationService.swift` — нативные системные уведомления (`UNUserNotificationCenter`), группировка по `threadIdentifier` чата, бейдж на иконке приложения.
-  - `Services/AppStore.swift` — координатор состояния (`@MainActor ObservableObject`), биометрическая блокировка (`LAContext` Touch ID / Face ID), авто-обработка E2E-рукопожатий и ротации групповых ключей, управление звонками.
+**macOS.** Откройте DMG и перетащите RMS MAKS в «Программы». Сборка не нотаризована: при первом запуске нажмите правой кнопкой → «Открыть».
 
-### `RMSMaxApp` (`Sources/RMSMaxApp/`)
-- `RMSMaxApp.swift` — точка входа SwiftUI (WindowGroup + macOS Settings scene).
-- `ContentView.swift` — адаптивный `NavigationSplitView` для macOS, iPadOS и iPhone (вкладки «Чаты», «Контакты», экран блокировки, индикатор звонка).
-- `AuthView.swift` — вход по номеру телефона/SMS/2FA, QR-коду или токену с выбором транспорта.
-- `ChatDetailView.swift` — переписка, расшифровка/отправка E2E-сообщений и паролей, 1:1 рукопожатия и групповое E2E, вложения, реакции, запуск аудио/видеозвонка.
-- `CallOverlayView.swift` — панель активного/входящего звонка с SFrame-отпечатком, таймером, mute/camera/hangup.
-- `SettingsView.swift` — настройки аккаунта, транспорта, приватности (блоклист трекеров, режим телеметрии), уведомлений, Touch ID / Face ID, сброс данных.
+**iPhone / iPad.** Установка через SideStore — пошагово в [ipa-install.md](ipa-install.md). Приложение переподписывается на устройстве, Apple-аккаунт разработчика не нужен.
 
----
+## Возможности
 
-## Сборка и тесты
+- **Переписка:** чаты, группы, каналы, история, поиск, вложения (фото, видео, файлы), голосовые в формате официального клиента (Ogg/Opus), стикеры, опросы, папки, закрепление, пересылка, редактирование, удаление у всех, жалобы.
+- **Сквозное шифрование (RMS ↔ RMS):** сообщения и медиа (X25519/Ed25519, ChaCha20-Poly1305, Argon2id), групповые ключи, сверка эмодзи-отпечатком.
+- **Звонки (совместимы с официальным MAX):** аудио и видео 1:1, групповые звонки и конференции по ссылке; прямое соединение с TURN и автоматический переход на сервер звонков; восстановление связи; чат, поднятая рука, админ-инструменты, зал ожидания и запись; демонстрация экрана на Mac; E2E-звонки между двумя RMS MAKS; CallKit; выбор микрофона, динамиков и камеры; история звонков.
+- **Аккаунт:** вход по SMS-коду, звонком или по QR-коду, 2FA; контакты и чёрный список; профиль; управление группами и ссылками-приглашениями; истории; боты (кнопки и `/start`).
 
-### Swift Package Manager (macOS)
-```bash
-# Прогнать все 11 модульных тестов RMSMaxCoreTests
-swift test
+## Приватность
 
-# Собрать release-артефакты
-swift build -c release
-```
+- Никакой статистики, логов и метрик: отправка телеметрии MAX и SDK звонков вырезана, трекеры заблокированы.
+- Недавние стикеры, кэш медиа и ключи хранятся только на устройстве (шифрованное хранилище, мастер-ключ в Keychain).
+- Мини-приложения, передача геопозиции и номера телефона ботам не поддерживаются намеренно.
+- Расшифровка голосовых выключена по умолчанию: её выполняет сервер MAX.
 
-### Xcode (`macOS` / `iOS` / `iPadOS`)
-
-Проект `RMSMax.xcodeproj` генерируется из `project.yml` через **XcodeGen**:
+## Сборка
 
 ```bash
-xcodegen generate
-open RMSMax.xcodeproj
+xcodegen generate          # проект RMSMax.xcodeproj из project.yml
+swift test                 # модульные тесты ядра
 ```
 
-Сборка из командной строки без подписи (для проверки):
 ```bash
-# macOS (.app для Apple Silicon)
-xcodebuild -project RMSMax.xcodeproj -scheme RMSMax_macOS -configuration Release CODE_SIGNING_ALLOWED=NO build
+# macOS (универсальная, подпись Developer ID)
+xcodebuild -project RMSMax.xcodeproj -scheme RMSMax_macOS -configuration Release -destination 'generic/platform=macOS' build
 
-# iOS / iPadOS (iphoneos SDK, universal: iPhone + iPad)
-xcodebuild -project RMSMax.xcodeproj -scheme RMSMax_iOS -configuration Release -sdk iphoneos -destination "generic/platform=iOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+# iOS / iPadOS без подписи (для SideStore)
+xcodebuild -project RMSMax.xcodeproj -scheme RMSMax_iOS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-### Установка на MacBook M2 и iPhone / iPad с Apple Developer Account
-1. Откройте `RMSMax.xcodeproj` в Xcode.
-2. Выберите нужный таргет (**`RMSMax_macOS`** для MacBook или **`RMSMax_iOS`** для iPhone/iPad).
-3. В разделе **Signing & Capabilities** выберите свою **Team** и при необходимости задайте уникальный `Bundle Identifier` (по умолчанию `dev.rms.maks.macos` / `dev.rms.maks.ios`).
-4. Выберите ваше устройство (My Mac или подключённый iPhone / iPad) и нажмите **Run (`⌘R`)** или **Product → Archive** для установки/экспорта.
+Зависимость WebRTC — сборка LiveKit (`livekit/webrtc-xcframework`, BSD): выбор аудиоустройств, шифрование кадров, захват экрана.
+
+## Выпуск версии
+
+1. Поднять `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` в `project.yml`, собрать DMG и IPA локально.
+2. Подписать манифест `rms-release manifest` (ключ `release-key`), проверить `rms-release verify --check-artifacts`.
+3. Выложить на сервер обновлений по скрипту из `deploy-repo` (`uc-step14-rms-maks-product.sh` — образец: копия конфига, раскладка релиза, проверка здоровья, автооткат).

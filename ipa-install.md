@@ -15,7 +15,7 @@ RMS MAKS нет в App Store. Его ставят через **SideStore**. Эт
 - Компьютер на macOS, Windows или Linux, только для первой установки.
 - USB-кабель.
 - **Wi-Fi**. Мобильный интернет для установки и продления не подходит.
-- Файл **`RMSMax-<версия>.ipa`**. Его даст тот, кто собирает приложение.
+- Файл **`RMSMaks-<версия>.ipa`**: скачайте его на iPhone в Safari по ссылке https://update.rms-ds.com/get/rms-maks/ipa (всегда последняя версия).
 - Минут 15–20 и немного терпения.
 
 ---
@@ -64,7 +64,7 @@ RMS MAKS нет в App Store. Его ставят через **SideStore**. Эт
 
 ## Шаг 4. Установка RMS MAKS
 
-1. Сохраните файл `RMSMax-<версия>.ipa` на iPhone в приложение **Файлы**: из Telegram, AirDrop, iCloud Drive, почты, откуда удобно.
+1. Скачайте `RMSMaks-<версия>.ipa` по ссылке https://update.rms-ds.com/get/rms-maks/ipa — Safari сохранит его в **Файлы** → «Загрузки».
 2. Включите **LocalDevVPN** → **Connect**.
 3. Откройте **SideStore** → вкладка **My Apps** → кнопка **+** в левом верхнем углу.
 4. Выберите файл `.ipa` в «Файлах».
@@ -92,7 +92,7 @@ SideStore может продлевать и сам, в фоне, если ег�
 
 ## Обновление RMS MAKS
 
-Когда выйдет новая версия, вам пришлют новый `.ipa`. Установите его так же, как в шаге 4, поверх старой версии. Переписка, ключи шифрования и настройки сохранятся.
+Когда выйдет новая версия, скачайте новый `.ipa` по той же ссылке. Установите его так же, как в шаге 4, поверх старой версии. Переписка, ключи шифрования и настройки сохранятся.
 
 > **Не удаляйте** RMS MAKS перед обновлением: удаление стирает локальные данные, в том числе ключи E2E.
 
@@ -149,7 +149,7 @@ xcodebuild -project RMSMax.xcodeproj -scheme RMSMax_iOS -configuration Release \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
 rm -rf build/ipa-stage && mkdir -p build/ipa-stage/Payload dist
 cp -R "build/dd-ipa/Build/Products/Release-iphoneos/RMS MAKS.app" build/ipa-stage/Payload/
-(cd build/ipa-stage && zip -qry ../../dist/RMSMax-1.0.0.ipa Payload)
+(cd build/ipa-stage && zip -qry ../../dist/RMSMaks-<версия>.ipa Payload)
 ```
 
 IPA собирается **без подписи**: SideStore подписывает его сам, на устройстве пользователя. Перед новой версией поднимите `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` в `project.yml`. Не меняйте `PRODUCT_BUNDLE_IDENTIFIER` (`dev.rms.maks.ios`), иначе обновление встанет отдельным приложением и данные не перенесутся.
