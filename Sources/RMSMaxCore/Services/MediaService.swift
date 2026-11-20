@@ -94,7 +94,8 @@ enum MediaHTTP {
         do {
             let (data, response) = try await session.data(from: url)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                throw MediaError.downloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                let note = String(decoding: data.prefix(120), as: UTF8.self).replacingOccurrences(of: "\n", with: " ")
+                throw MediaError.downloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0) \(note)")
             }
             return data
         } catch let e as MediaError {
@@ -216,6 +217,31 @@ extension MaxClient {
     }
 
     /// opcode 83 → best playable URL for a VIDEO / voice attach.
+    /// Every playable address of a video in order of preference (op 83 answers several renditions: MP4_144…MP4_1080, EXTERNAL…).
+    /// The response keys are logged (names only, no tokens) so that a wrong guess can be diagnosed from the diagnostics log.
+    public func videoPlaybackCandidates(chatId: Int64, messageId: Int64, videoId: Int64, token: String?) async throws -> [(key: String, url: URL)] {
+        var obj: [String: JSONValue] = ["chatId": .int(chatId), "messageId": .int(messageId), "videoId": .int(videoId)]
+        if let token { obj["token"] = .string(token) }
+        let resp = try await sendAndWait(opcode: 83, payload: .object(obj))
+        let all = resp.payload.objectValue ?? [:]
+        ProtocolLog.add("video op=83 keys: " + all.keys.sorted().map { k in
+            let v = all[k]; let isURL = v?.stringValue?.hasPrefix("http") == true
+            return isURL ? "\(k)=url" : k
+        }.joined(separator: ","))
+        let order = ["MP4_480", "MP4_720", "MP4_360", "MP4_240", "MP4_144", "MP4_1080", "EXTERNAL", "url", "MP4", "OGG", "MP3", "AUDIO"]
+        var out: [(String, URL)] = []
+        var seen = Set<String>()
+        func add(_ k: String) {
+            guard let str = all[k]?.stringValue, let u = URL(string: str), u.scheme?.hasPrefix("http") == true, seen.insert(str).inserted else { return }
+            if u.path.hasSuffix(".m3u8") { return } // HLS cannot be saved as one file
+            out.append((k, u))
+        }
+        order.forEach(add)
+        for k in all.keys.sorted() where !order.contains(k) && !["HLS", "O_HLS", "DASH", "O_DASH"].contains(k) { add(k) }
+        guard !out.isEmpty else { throw MediaError.noDownloadURL }
+        return out
+    }
+
     public func videoPlaybackURL(chatId: Int64, messageId: Int64, videoId: Int64, token: String?, preferAudio: Bool = false) async throws -> URL {
         var obj: [String: JSONValue] = [
             "chatId": .int(chatId),
@@ -517,11 +543,20 @@ extension AppStore {
             guard let videoId = attachment.videoId else { throw MediaError.noDownloadURL }
             let target = MediaCache.url(key: "video_\(videoId)", fileName: "video.mp4")
             if FileManager.default.fileExists(atPath: target.path) { return target }
-            let url = try await client.videoPlaybackURL(
-                chatId: chatId, messageId: messageId, videoId: videoId, token: attachment.token
-            )
-            try await MediaHTTP.get(url).write(to: target, options: .atomic)
-            return target
+            let candidates = try await client.videoPlaybackCandidates(chatId: chatId, messageId: messageId, videoId: videoId, token: attachment.token)
+            var lastError: Error = MediaError.noDownloadURL
+            for (key, url) in candidates {
+                do {
+                    let data = try await MediaHTTP.get(url)
+                    try data.write(to: target, options: .atomic)
+                    ProtocolLog.add("video \(key) \(url.host ?? "?")\(url.path) \(data.count) B downloaded")
+                    return target
+                } catch {
+                    lastError = error
+                    ProtocolLog.add("video \(key) \(url.host ?? "?")\(url.path) failed: \(error.localizedDescription)")
+                }
+            }
+            throw lastError
         case .other:
             throw MediaError.unsupported("Этот тип вложения пока не поддерживается")
         }
