@@ -20,6 +20,7 @@ enum PhotoFileImport {
 
 struct ContactsView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
 
     @State private var searchText = ""
     @State private var newPhone = ""
@@ -27,6 +28,13 @@ struct ContactsView: View {
     @State private var newLast = ""
     @State private var addResult: String?
     @State private var renameTarget: MaxContact?
+    @State private var profileTarget: ProfileTarget?
+    @State private var found: MaxContact?
+    @State private var searching = false
+    @State private var notFound = false
+    @State private var showingImport = false
+
+    struct ProfileTarget: Identifiable { let id: Int64 }
 
     /// Only the user's own address book (flagged during sync / add), not group members seen elsewhere.
     private var visibleContacts: [MaxContact] {
@@ -40,42 +48,63 @@ struct ContactsView: View {
 
     var body: some View {
         Form {
-            Section("Добавить контакт") {
-                TextField("Телефон (например, +79001234567)", text: $newPhone)
-                TextField("Имя", text: $newFirst)
-                TextField("Фамилия", text: $newLast)
-                Button("Добавить") {
-                    let phone = newPhone.trimmedForm
-                    let first = newFirst.trimmedForm
-                    let last = newLast.trimmedForm
-                    Task {
-                        if let c = await store.addContact(phone: phone, firstName: first, lastName: last) {
-                            addResult = "Добавлен: \(c.name)"
-                            newPhone = ""
-                            newFirst = ""
-                            newLast = ""
+            Section {
+                HStack {
+                    TextField("", text: $newPhone, prompt: Text("Номер телефона, например +79001234567"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(find)
+                    Button("Найти", action: find)
+                        .disabled(newPhone.filter(\.isNumber).count < 10 || searching)
+                }
+                if searching { ProgressView().controlSize(.small) }
+                if notFound {
+                    Text("Пользователь с этим номером не зарегистрирован в MAX или скрыл номер").font(.caption).foregroundStyle(.secondary)
+                }
+                if let c = found {
+                    HStack(spacing: 10) {
+                        AvatarView(url: c.avatarURL, title: c.name, size: 36)
+                        Text(c.name)
+                        Spacer()
+                        Button("Профиль") { profileTarget = ProfileTarget(id: c.id) }.buttonStyle(.borderless)
+                        Button("Написать") { store.openDialog(with: c.id); dismiss() }.buttonStyle(.borderless)
+                    }
+                    if c.isInContacts != true {
+                        HStack {
+                            TextField("", text: $newFirst, prompt: Text("Имя")).labelsHidden().textFieldStyle(.roundedBorder)
+                            TextField("", text: $newLast, prompt: Text("Фамилия")).labelsHidden().textFieldStyle(.roundedBorder)
+                            Button("Добавить в контакты") { add(c) }
                         }
                     }
                 }
-                .disabled(newPhone.trimmedForm.isEmpty)
-                if let addResult {
-                    Text(addResult)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                if let addResult { Text(addResult).font(.caption).foregroundStyle(.secondary) }
+                Button("Импорт из адресной книги…") { showingImport = true }
+            } header: {
+                Text("Найти или добавить по номеру")
             }
 
-            Section("Контакты") {
+            Section("Контакты (\(visibleContacts.count))") {
+                if visibleContacts.isEmpty {
+                    Text(searchText.isEmpty ? "Контактов пока нет" : "Ничего не найдено").foregroundStyle(.secondary)
+                }
                 ForEach(visibleContacts) { c in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(c.name)
-                        if let phone = c.phone {
-                            Text(phone)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    Button { profileTarget = ProfileTarget(id: c.id) } label: {
+                        HStack(spacing: 10) {
+                            AvatarView(url: c.avatarURL, title: c.name, size: 34)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(c.name)
+                                Text(store.presence[c.id]?.label ?? (c.phone.map { $0.hasPrefix("+") ? $0 : "+" + $0 } ?? ""))
+                                    .font(.caption)
+                                    .foregroundStyle(store.presence[c.id]?.isOnline == true ? Color.accentColor : .secondary)
+                            }
+                            Spacer()
                         }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .contextMenu {
+                        Button("Написать") { store.openDialog(with: c.id); dismiss() }
+                        Button("Профиль") { profileTarget = ProfileTarget(id: c.id) }
                         Button("Переименовать…") { renameTarget = c }
                         Button("Удалить из контактов", role: .destructive) {
                             Task { await store.contactAction(c.id, action: "REMOVE") }
@@ -94,6 +123,7 @@ struct ContactsView: View {
                 }
                 ForEach(store.blockedContacts) { c in
                     HStack {
+                        AvatarView(url: c.avatarURL, title: c.name, size: 28)
                         Text(c.name)
                         Spacer()
                         Button("Разблокировать") {
@@ -105,11 +135,53 @@ struct ContactsView: View {
             }
         }
         .formStyle(.grouped)
-        .searchable(text: $searchText, prompt: "Поиск контактов")
+        .searchable(text: $searchText, prompt: "Поиск по контактам")
         .navigationTitle("Контакты")
-        .task { await store.loadBlacklist() }
+        .task {
+            await store.loadBlacklist()
+            await store.loadPresence(visibleContacts.map(\.id))
+        }
         .sheet(item: $renameTarget) { c in
             RenameContactSheet(contact: c)
+        }
+        .sheet(item: $profileTarget) { t in
+            NavigationStack {
+                UserProfileView(userId: t.id)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Готово") { profileTarget = nil } } }
+            }
+            #if os(macOS)
+            .frame(minWidth: 440, minHeight: 560)
+            #endif
+        }
+        .sheet(isPresented: $showingImport) { AddressBookImportView() }
+    }
+
+    private func find() {
+        let phone = newPhone.trimmedForm
+        guard phone.filter(\.isNumber).count >= 10 else { return }
+        searching = true
+        notFound = false
+        found = nil
+        addResult = nil
+        Task {
+            let c = await store.findUser(phone: phone)
+            searching = false
+            found = c
+            notFound = c == nil
+            newFirst = c?.firstName ?? ""
+            newLast = c?.lastName ?? ""
+        }
+    }
+
+    private func add(_ c: MaxContact) {
+        let phone = newPhone.trimmedForm
+        let first = newFirst.trimmedForm.isEmpty ? c.firstName : newFirst.trimmedForm
+        let last = newLast.trimmedForm
+        Task {
+            if let added = await store.addContact(phone: phone, firstName: first, lastName: last) {
+                addResult = "Добавлен в контакты: \(added.name)"
+                found = added
+            }
         }
     }
 }

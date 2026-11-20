@@ -16,13 +16,22 @@ struct ProfileEditView: View {
 
     var body: some View {
         Form {
+            Section {
+                VStack(spacing: 6) {
+                    AvatarView(url: me?.avatarURL ?? store.currentAccount?.avatarURL, title: store.currentAccount?.displayName ?? "", size: 88)
+                    if let phone = store.currentAccount?.phone {
+                        Text(phone.hasPrefix("+") ? phone : "+" + phone).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
             Section("Имя") {
-                TextField("Имя", text: $firstName)
-                TextField("Фамилия", text: $lastName)
+                TextField("Имя", text: $firstName, prompt: Text("Имя"))
+                TextField("Фамилия", text: $lastName, prompt: Text("Фамилия"))
             }
 
             Section("О себе") {
-                TextField("Описание", text: $descriptionText, axis: .vertical)
+                TextField("Описание", text: $descriptionText, prompt: Text("Пара слов о себе"), axis: .vertical)
             }
 
             Section {

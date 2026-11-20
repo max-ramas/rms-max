@@ -99,6 +99,7 @@ struct GroupInfoView: View {
     // MARK: - Loading
 
     private func reload() async {
+        guard chat?.type != .dialog else { return }
         if let chat {
             titleDraft = chat.title
             descDraft = chat.chatDescription ?? ""
@@ -114,47 +115,11 @@ struct GroupInfoView: View {
 
     @ViewBuilder
     private func dialogForm(_ chat: MaxChat) -> some View {
-        let peerId = store.dialogPeerId(for: chat)
-        let peer = peerId.flatMap { store.contacts[$0] }
-        Form {
-            Section("Собеседник") {
-                if let peer {
-                    LabeledContent("Имя", value: peer.name)
-                    if let phone = peer.phone {
-                        LabeledContent("Телефон", value: phone)
-                    }
-                    if let d = peer.description, !d.isEmpty {
-                        Text(d)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("Нет данных о собеседнике")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if let peer, let pid = peerId {
-                Section("Действия") {
-                    if peer.isBlocked == true {
-                        Button("Разблокировать") {
-                            Task { await store.contactAction(pid, action: "UNBLOCK") }
-                        }
-                    } else {
-                        Button("Заблокировать", role: .destructive) {
-                            Task { await store.contactAction(pid, action: "BLOCK") }
-                        }
-                    }
-                    Button("Переименовать…") { renameTarget = peer }
-                    Button("Удалить из контактов", role: .destructive) {
-                        Task { await store.contactAction(pid, action: "REMOVE") }
-                    }
-                    Button("Пожаловаться…", role: .destructive) {
-                        complaint = ComplaintRequest(target: .userProfile, ids: [pid])
-                    }
-                }
-            }
+        if let peerId = store.dialogPeerId(for: chat) {
+            UserProfileView(userId: peerId, showsMessageButton: false)
+        } else {
+            ContentUnavailableView("Нет данных о собеседнике", systemImage: "person.crop.circle.badge.questionmark")
         }
-        .formStyle(.grouped)
     }
 
     // MARK: - Group
@@ -189,6 +154,7 @@ struct GroupInfoView: View {
             Section {
                 ForEach(members) { m in
                     HStack {
+                        AvatarView(url: store.contacts[m.id]?.avatarURL, title: m.name, size: 28)
                         Text(m.name)
                         Spacer()
                         if m.isOwner {

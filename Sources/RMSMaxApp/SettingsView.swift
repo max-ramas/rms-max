@@ -4,6 +4,9 @@ import RMSMaxCore
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var newBlockedDomain = ""
+    @State private var showingProfileEdit = false
+    @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
+    @AppStorage("youtubePreviews") private var youtubePreviews = true
     @AppStorage("voiceFormat") private var voiceFormat = "ogg"
     @State private var notifEnabled = NotificationService.shared.notificationsEnabled
     @State private var notifPreview = NotificationService.shared.showPreview
@@ -17,8 +20,11 @@ struct SettingsView: View {
                     if let phone = acc.phone {
                         LabeledContent("Телефон", value: phone)
                     }
+                    #if os(macOS)
+                    Toggle("Значок в строке меню", isOn: $showMenuBarExtra)
+                    #endif
                     LabeledContent("Транспорт", value: acc.useMobileTransport ? "Mobile TLS (api2.oneme.ru)" : "WebSocket")
-                    NavigationLink("Редактировать профиль") { ProfileEditView() }
+                    Button("Редактировать профиль…") { showingProfileEdit = true }
                 }
 
                 Section("Приватность и телеметрия") {
@@ -41,7 +47,10 @@ struct SettingsView: View {
                     }
                 }
                 HStack {
-                    TextField("Добавить домен (например, metrics.example.ru)", text: $newBlockedDomain)
+                    TextField("", text: $newBlockedDomain, prompt: Text("Домен, например metrics.example.ru"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
                     Button("Добавить") {
                         let d = newBlockedDomain.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !d.isEmpty && !store.customBlockedDomains.contains(d) {
@@ -88,6 +97,14 @@ struct SettingsView: View {
                 Text("Речь распознаёт сервер MAX — только по нажатию «Расшифровать». Для зашифрованных (E2E) голосовых недоступно.")
             }
 
+            Section {
+                Toggle("Превью видео YouTube", isOn: $youtubePreviews)
+            } header: {
+                Text("Ссылки")
+            } footer: {
+                Text("Обложка ролика загружается с i.ytimg.com. Сам плеер (youtube-nocookie.com, без сохранения cookie) открывается только по нажатию.")
+            }
+
             UpdateSettingsSection()
 
             DiagnosticsSection()
@@ -132,6 +149,15 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Настройки RMS MAKS")
+        .sheet(isPresented: $showingProfileEdit) {
+            NavigationStack {
+                ProfileEditView()
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Готово") { showingProfileEdit = false } } }
+            }
+            #if os(macOS)
+            .frame(minWidth: 440, minHeight: 460)
+            #endif
+        }
         .task {
             if store.isConnected {
                 await store.refreshSessions()

@@ -22,6 +22,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>RMS MAKS использует камеру для зашифрованных видеозвонков.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>RMS MAKS показывает адресную книгу, чтобы вы выбрали, кого найти в MAX. Номера отправляются на сервер MAX только для выбранных контактов.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>RMS MAKS использует Face ID для защиты локального хранилища и ключей.</string>
 	<key>NSMicrophoneUsageDescription</key>

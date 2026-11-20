@@ -8,8 +8,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "1.2.1"
-    CURRENT_PROJECT_VERSION: "12"
+    MARKETING_VERSION: "1.2.2"
+    CURRENT_PROJECT_VERSION: "13"
     PRODUCT_NAME: "RMS MAKS"
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     DEVELOPMENT_TEAM: UG53523VMB
@@ -38,6 +38,7 @@ targets:
         LSApplicationCategoryType: public.app-category.social-networking
         NSCameraUsageDescription: "RMS MAKS использует камеру для зашифрованных видеозвонков."
         NSMicrophoneUsageDescription: "RMS MAKS использует микрофон для голосовых и видеозвонков."
+        NSContactsUsageDescription: "RMS MAKS показывает адресную книгу, чтобы вы выбрали, кого найти в MAX. Номера отправляются на сервер MAX только для выбранных контактов."
         NSUserNotificationAlertStyle: alert
     entitlements:
       path: XcodeSupport/macOS.entitlements
@@ -79,6 +80,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSCameraUsageDescription: "RMS MAKS использует камеру для зашифрованных видеозвонков."
         NSMicrophoneUsageDescription: "RMS MAKS использует микрофон для голосовых и видеозвонков."
+        NSContactsUsageDescription: "RMS MAKS показывает адресную книгу, чтобы вы выбрали, кого найти в MAX. Номера отправляются на сервер MAX только для выбранных контактов."
         NSFaceIDUsageDescription: "RMS MAKS использует Face ID для защиты локального хранилища и ключей."
         UIBackgroundModes:
           - audio

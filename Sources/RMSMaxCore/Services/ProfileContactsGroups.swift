@@ -114,7 +114,8 @@ public extension AppStore {
     // MARK: - Groups (op 59 members, 77 membership/admins/requests, 55 settings, 58 leave, 221–223 links)
 
     func loadMembers(chatId: Int64) async -> [GroupMember] {
-        guard let chat = chats.first(where: { $0.id == chatId }) else { return [] }
+        // Dialogs have no member list: op 59 answers «chat not found» for them.
+        guard let chat = chats.first(where: { $0.id == chatId }), chat.type != .dialog else { return [] }
         do {
             let resp = try await client.sendAndWait(opcode: 59, payload: .object([
                 "type": .string("MEMBER"), "chatId": .int(chatId), "count": .int(500),

@@ -72,31 +72,37 @@ struct ContentView: View {
                                 } label: {
                                     Label("Новая группа", systemImage: "square.and.pencil")
                                 }
+                                .help("Новая группа")
                                 Button {
                                     showingJoinLink = true
                                 } label: {
                                     Label("Открыть ссылку", systemImage: "link")
                                 }
+                                .help("Открыть ссылку")
                                 Button {
                                     showingCallHistory = true
                                 } label: {
                                     Label("Звонки", systemImage: "phone.badge.clock")
                                 }
+                                .help("Звонки")
                                 Button {
                                     showingContacts = true
                                 } label: {
                                     Label("Контакты", systemImage: "person.crop.circle")
                                 }
+                                .help("Контакты")
                                 Button {
                                     showingJoinCallSheet = true
                                 } label: {
                                     Label("Звонок по ссылке", systemImage: "video.badge.plus")
                                 }
+                                .help("Звонок по ссылке")
                                 Button {
                                     showingSettings = true
                                 } label: {
                                     Label("Настройки", systemImage: "gearshape")
                                 }
+                                .help("Настройки")
                             }
                         }
                 } detail: {
@@ -162,6 +168,22 @@ struct ContentView: View {
             .frame(minWidth: 460, minHeight: 520)
             #endif
         }
+        .onReceive(NotificationCenter.default.publisher(for: AppAction.notification)) { note in
+            switch AppAction(rawValue: note.object as? String ?? "") {
+            case .contacts: showingContacts = true
+            case .newGroup: showingNewGroupSheet = true
+            case .callHistory: showingCallHistory = true
+            case .joinCall: showingJoinCallSheet = true
+            case .openLink: showingJoinLink = true
+            case .checkUpdates:
+                Task {
+                    if store.availableUpdate == nil { await store.checkForUpdates(manual: true) }
+                    store.updatePromptShown = true
+                }
+            case nil: break
+            }
+        }
+        .sheet(isPresented: $store.updatePromptShown) { UpdateSheet() }
         .sheet(isPresented: $showingContacts) {
             NavigationStack {
                 ContactsView()
@@ -371,12 +393,13 @@ private struct ChatRowView: View {
     var body: some View {
         let settings = store.chatSettingsByChat[chat.id]
         HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(chat.type == .chat ? Color.indigo.opacity(0.2) : Color.accentColor.opacity(0.18))
-                    .frame(width: 42, height: 42)
-                Image(systemName: chat.type == .chat ? "person.3.fill" : (chat.type == .channel ? "megaphone.fill" : "person.fill"))
-                    .foregroundStyle(chat.type == .chat ? Color.indigo : Color.accentColor)
+            ZStack(alignment: .bottomTrailing) {
+                AvatarView(url: store.avatarURL(for: chat), title: store.resolvedChatTitle(chat),
+                           symbol: store.avatarURL(for: chat) == nil && chat.type != .dialog ? (chat.type == .channel ? "megaphone.fill" : "person.3.fill") : nil)
+                if chat.type == .dialog, let pid = store.dialogPeerId(for: chat), store.presence[pid]?.isOnline == true {
+                    Circle().fill(.green).frame(width: 11, height: 11)
+                        .overlay(Circle().stroke(.background, lineWidth: 2))
+                }
             }
 
             VStack(alignment: .leading, spacing: 3) {

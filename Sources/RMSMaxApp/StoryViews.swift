@@ -15,10 +15,10 @@ struct StoriesBar: View {
                     ForEach(store.storyPreviews) { p in
                         Button { open = StoryOwnerBox(owner: p.owner) } label: {
                             VStack(spacing: 3) {
-                                Circle()
-                                    .strokeBorder(p.hasUnread ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: 2.5)
-                                    .background(Circle().fill(Color.secondary.opacity(0.12)))
-                                    .overlay(Text(String(store.storyOwnerName(p.owner).prefix(1))).font(.headline))
+                                AvatarView(url: p.owner.type == 0 ? store.contacts[p.owner.id]?.avatarURL : store.chats.first { $0.id == p.owner.id }?.avatarURL,
+                                           title: store.storyOwnerName(p.owner), size: 40)
+                                    .padding(3)
+                                    .overlay(Circle().strokeBorder(p.hasUnread ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: 2.5))
                                     .frame(width: 46, height: 46)
                                 Text(store.storyOwnerName(p.owner)).font(.caption2).lineLimit(1).frame(width: 60)
                             }

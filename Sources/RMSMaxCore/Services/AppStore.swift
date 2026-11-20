@@ -62,6 +62,10 @@ public final class AppStore: ObservableObject {
     @Published public internal(set) var availableUpdate: AvailableUpdate?
     @Published public internal(set) var updateStatus: String?
     @Published public internal(set) var isInstallingUpdate = false
+    /// Set by a menu / tray "check for updates" when a newer version is found: the main window shows the update dialog.
+    @Published public var updatePromptShown = false
+    /// userId -> presence (op 35, push 132, login `presence`).
+    @Published public internal(set) var presence: [Int64: ContactPresence] = [:]
     /// Voice transcriptions by "chatId:messageId".
     @Published public internal(set) var transcriptions: [String: String] = [:]
     @Published public var selectedFolderId: String? = nil
@@ -405,6 +409,9 @@ public final class AppStore: ObservableObject {
                 }
             }
 
+            applyPresenceMap(loginResp.payload["presence"])
+            applyPresenceMap(login2Resp?.payload["presence"])
+
             let rawChats = loginResp.payload["chats"]?.arrayValue ?? []
             var parsed: [MaxChat] = []
             for raw in rawChats {
@@ -421,7 +428,10 @@ public final class AppStore: ObservableObject {
             }
             reconnectAttempt = 0
             ProtocolLog.add("synced: \(chats.count) chats, \(contacts.count) contacts")
-            Task { await self.ensureContacts(for: self.chats) }
+            Task {
+            await self.ensureContacts(for: self.chats)
+            await self.loadPresence(Array(self.chats.compactMap { self.dialogPeerId(for: $0) }.prefix(200)))
+        }
             if let open = selectedChatId { Task { await self.loadMessages(chatId: open) } }
         } catch {
             isConnected = false
@@ -469,15 +479,19 @@ public final class AppStore: ObservableObject {
     }
 
     /// op 32 for people we only know by id: dialog peers, message senders, story owners.
-    func ensureContacts(_ ids: [Int64]) async {
-        let missing = Array(Set(ids.filter { $0 > 0 && contacts[$0] == nil }))
+    public func ensureContacts(_ ids: [Int64], refresh: Bool = false) async {
+        let missing = Array(Set(ids.filter { $0 > 0 && (refresh || contacts[$0] == nil) }))
         guard !missing.isEmpty else { return }
         for start in stride(from: 0, to: missing.count, by: 100) {
             let chunk = Array(missing[start..<min(start + 100, missing.count)])
             guard let resp = try? await client.getContacts(chunk) else { continue }
             for raw in resp.payload["contacts"]?.arrayValue ?? [] {
-                let c = parseContactValue(raw)
-                if contacts[c.id] == nil { contacts[c.id] = c }
+                var c = parseContactValue(raw)
+                if let old = contacts[c.id] {
+                    c.isInContacts = c.isInContacts ?? old.isInContacts
+                    if raw["status"] == nil { c.isBlocked = old.isBlocked }
+                }
+                contacts[c.id] = c
             }
         }
     }
@@ -528,6 +542,8 @@ public final class AppStore: ObservableObject {
             }
         case OKCalls.Opcode.incomingCallPush:
             await handleIncomingCallPush(resp.payload)
+        case 132:
+            applyPresencePush(resp.payload)
         case 135:
             if let chat = resp.payload["chat"] { await applyChatUpdate(chat) }
         case 165:
@@ -1301,10 +1317,13 @@ public final class AppStore: ObservableObject {
             firstName: firstName,
             lastName: lastName,
             phone: v["phone"]?.stringValue,
-            avatarURL: v["baseUrl"]?.stringValue ?? v["baseIconUrl"]?.stringValue,
+            avatarURL: v["baseUrl"]?.stringValue ?? v["baseRawUrl"]?.stringValue ?? v["baseIconUrl"]?.stringValue,
             description: v["description"]?.stringValue,
             isOnline: false,
-            lastSeenMs: nil
+            lastSeenMs: nil,
+            link: v["link"]?.stringValue,
+            registrationTime: v["registrationTime"]?.int64Value,
+            gender: v["gender"]?.stringValue
         )
     }
 
@@ -1400,31 +1419,15 @@ public final class AppStore: ObservableObject {
         let status = v["status"]?.stringValue ?? ""
         let deleted = status == "REMOVED"
         let edited = status == "EDITED" || (v["edited"]?.boolValue ?? false)
-        let replyId = v["link"]?["messageId"]?.stringValue
+        let replyId = v["link"]?["type"]?.stringValue == "FORWARD" ? nil : v["link"]?["messageId"]?.stringValue
 
-        var attaches: [MaxAttachment] = []
-        if let rawAtt = (v["attaches"] ?? v["attachments"])?.arrayValue {
-            for (idx, a) in rawAtt.enumerated() {
-                attaches.append(MaxAttachment(
-                    id: a["id"]?.stringValue ?? "\(id)_\(idx)",
-                    type: a["_type"]?.stringValue ?? a["type"]?.stringValue ?? "FILE",
-                    title: a["name"]?.stringValue ?? a["title"]?.stringValue,
-                    url: a["baseUrl"]?.stringValue ?? a["url"]?.stringValue,
-                    fileId: a["fileId"]?.int64Value,
-                    photoId: a["photoId"]?.int64Value,
-                    videoId: a["videoId"]?.int64Value ?? a["audioId"]?.int64Value,
-                    width: a["width"]?.int64Value.map(Int.init),
-                    height: a["height"]?.int64Value.map(Int.init),
-                    durationMs: a["duration"]?.doubleValue,
-                    mime: a["mime"]?.stringValue,
-                    size: a["size"]?.uint64Value,
-                    token: a["token"]?.stringValue,
-                    wave: Self.decodeWave(a["wave"]),
-                    poll: a["_type"]?.stringValue == "POLL" ? MaxPoll.parse(a) : nil,
-                    keyboard: a["_type"]?.stringValue == "INLINE_KEYBOARD" ? BotKeyboard.parse(a) : nil
-                ))
-            }
-        }
+        // A forward carries the original text and attachments in `link.message`.
+        let link = v["link"]
+        let isForward = link?["type"]?.stringValue == "FORWARD"
+        let source = isForward ? (link?["message"] ?? v) : v
+        let bodyText = text.isEmpty && isForward ? (source["text"]?.stringValue ?? "") : text
+        let attaches = Self.parseAttaches(source["attaches"] ?? source["attachments"] ?? v["attaches"], messageId: id)
+        let forwardedFrom = isForward ? (source["sender"]?.int64Value ?? link?["chatId"]?.int64Value) : nil
 
         var reactions: [MaxReactionCount] = []
         if let counters = v["reactionInfo"]?["counters"]?.arrayValue {
@@ -1439,14 +1442,59 @@ public final class AppStore: ObservableObject {
             id: id,
             chatId: chatId,
             senderId: sender,
-            text: text,
+            text: bodyText,
             timeMs: timeMs,
             edited: edited,
             deleted: deleted,
             replyToMessageId: replyId,
             attaches: attaches,
             reactions: reactions,
-            decrypted: nil
+            decrypted: nil,
+            forwardedFromId: forwardedFrom
         )
+    }
+
+    nonisolated static func parseAttaches(_ raw: JSONValue?, messageId id: String) -> [MaxAttachment] {
+        (raw?.arrayValue ?? []).enumerated().map { idx, a in
+            let type = a["_type"]?.stringValue ?? a["type"]?.stringValue ?? "FILE"
+            var att = MaxAttachment(
+                id: a["id"]?.stringValue ?? "\(id)_\(idx)",
+                type: type,
+                title: a["name"]?.stringValue ?? a["title"]?.stringValue,
+                url: a["baseUrl"]?.stringValue ?? a["url"]?.stringValue,
+                fileId: a["fileId"]?.int64Value,
+                photoId: a["photoId"]?.int64Value,
+                videoId: a["videoId"]?.int64Value ?? a["audioId"]?.int64Value,
+                width: a["width"]?.int64Value.map(Int.init),
+                height: a["height"]?.int64Value.map(Int.init),
+                durationMs: a["duration"]?.doubleValue,
+                mime: a["mime"]?.stringValue,
+                size: a["size"]?.uint64Value,
+                token: a["token"]?.stringValue,
+                wave: decodeWave(a["wave"]),
+                poll: type == "POLL" ? MaxPoll.parse(a) : nil,
+                keyboard: type == "INLINE_KEYBOARD" ? BotKeyboard.parse(a) : nil
+            )
+            switch type {
+            case "SHARE":
+                if let url = a["url"]?.stringValue, !url.isEmpty {
+                    let img = a["image"]
+                    att.share = LinkShare(url: url, title: a["title"]?.stringValue, description: a["description"]?.stringValue,
+                                          host: a["host"]?.stringValue,
+                                          imageURL: img?["baseUrl"]?.stringValue ?? img?["url"]?.stringValue ?? img?["previewUrl"]?.stringValue)
+                }
+            case "CONTROL":
+                att.control = ControlEvent(event: a["event"]?.stringValue ?? "",
+                                           userIds: (a["userIds"]?.arrayValue ?? []).compactMap(\.int64Value) + [a["userId"]?.int64Value].compactMap { $0 },
+                                           title: a["title"]?.stringValue)
+            case "CONTACT":
+                att.contactId = a["contactId"]?.int64Value
+            case "LOCATION":
+                att.latitude = a["latitude"]?.doubleValue
+                att.longitude = a["longitude"]?.doubleValue
+            default: break
+            }
+            return att
+        }
     }
 }

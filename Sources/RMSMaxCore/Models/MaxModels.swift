@@ -375,8 +375,35 @@ public struct MaxAttachment: Codable, Sendable, Equatable, Identifiable {
     public var poll: MaxPoll? = nil
     /// `_type: INLINE_KEYBOARD` (bot buttons).
     public var keyboard: BotKeyboard? = nil
+    /// `_type: SHARE` link preview.
+    public var share: LinkShare? = nil
+    /// `_type: CONTROL` service event (`event`, `userIds`, `title`).
+    public var control: ControlEvent? = nil
+    /// `_type: CONTACT`.
+    public var contactId: Int64? = nil
+    /// `_type: LOCATION`.
+    public var latitude: Double? = nil
+    public var longitude: Double? = nil
 
     public var kind: AttachmentKind { AttachmentKind(rawType: type) }
+}
+
+public struct LinkShare: Codable, Sendable, Equatable {
+    public var url: String
+    public var title: String?
+    public var description: String?
+    public var host: String?
+    public var imageURL: String?
+
+    public init(url: String, title: String?, description: String?, host: String?, imageURL: String?) {
+        self.url = url; self.title = title; self.description = description; self.host = host; self.imageURL = imageURL
+    }
+}
+
+public struct ControlEvent: Codable, Sendable, Equatable {
+    public var event: String
+    public var userIds: [Int64]
+    public var title: String?
 }
 
 public struct BotKeyboard: Codable, Sendable, Equatable {
@@ -540,6 +567,8 @@ public struct MaxMessage: Codable, Sendable, Equatable, Identifiable {
     public var attaches: [MaxAttachment]
     public var reactions: [MaxReactionCount]
     public var decrypted: DecryptedMessageState?
+    /// Author of the original message when this one is a forward (`link.type == FORWARD`).
+    public var forwardedFromId: Int64? = nil
 
     /// Text body only (decrypted when E2E), without attachment placeholders.
     public var bodyText: String {
@@ -553,7 +582,14 @@ public struct MaxMessage: Codable, Sendable, Equatable, Identifiable {
         if let media = decrypted?.media {
             return "🔒 " + AttachmentKind(rawType: media.mediaType).label(name: media.name)
         }
-        if let first = attaches.first {
+        if let share = attaches.first(where: { $0.share != nil })?.share {
+            return share.title ?? share.url
+        }
+        if let first = attaches.first(where: { $0.keyboard == nil }) {
+            if first.control != nil { return "Служебное сообщение" }
+            if first.contactId != nil { return "Контакт" }
+            if first.latitude != nil { return "Геопозиция" }
+            if first.poll != nil { return "Опрос" }
             return first.kind.label(name: first.title)
         }
         return body
@@ -577,6 +613,10 @@ public struct MaxContact: Codable, Sendable, Equatable, Identifiable {
     public var description: String?
     public var isOnline: Bool
     public var lastSeenMs: Int64?
+    /// Public profile link (max.ru/<nick>), registration time (ms), gender.
+    public var link: String? = nil
+    public var registrationTime: Int64? = nil
+    public var gender: String? = nil
 }
 
 /// A group call running in a chat (`chat.videoConversation`).

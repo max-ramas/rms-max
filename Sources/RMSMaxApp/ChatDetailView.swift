@@ -489,6 +489,15 @@ private struct MessageBubbleView: View {
     }()
 
     var body: some View {
+        if let event = message.attaches.first(where: { $0.control != nil })?.control,
+           message.bodyText.isEmpty {
+            ControlEventText(message: message, event: event)
+        } else {
+            bubble
+        }
+    }
+
+    private var bubble: some View {
         HStack {
             if isMe { Spacer(minLength: 60) }
 
@@ -498,12 +507,20 @@ private struct MessageBubbleView: View {
                         .font(.caption2.bold())
                         .foregroundStyle(.secondary)
                 }
+                if let fwd = message.forwardedFromId {
+                    Label("Переслано от \(store.contacts[fwd]?.name ?? store.chats.first { $0.id == fwd }.map { store.resolvedChatTitle($0) } ?? "пользователя")",
+                          systemImage: "arrowshape.turn.up.right.fill")
+                        .font(.caption2)
+                        .foregroundStyle(Color.accentColor)
+                        .task { await store.ensureContacts([fwd]) }
+                }
 
                 ForEach(message.attaches.filter { $0.poll != nil }) { att in
                     PollView(chatId: message.chatId, messageId: message.id, poll: att.poll!)
                 }
 
                 MessageAttachmentsView(message: message)
+                ContactAndLocationViews(message: message)
 
                 if message.decrypted == nil, store.transcriptionEnabled,
                    let voice = message.attaches.first(where: { $0.kind == .audio }), let mediaId = voice.videoId {
@@ -515,10 +532,14 @@ private struct MessageBubbleView: View {
                 }
 
                 let body = message.bodyText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                let share = message.attaches.first(where: { $0.share != nil })?.share
                 if !body.isEmpty || (message.attaches.isEmpty && message.decrypted?.media == nil) {
-                    Text(body.isEmpty ? message.displayText : body)
+                    Text(linkified(body.isEmpty ? message.displayText : body))
                         .font(.body)
                         .textSelection(.enabled)
+                }
+                if let link = share?.url ?? firstLink(in: body) {
+                    LinkCardView(url: link, share: share)
                 }
 
                 HStack(spacing: 6) {

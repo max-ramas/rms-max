@@ -26,6 +26,8 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>RMS MAKS использует камеру для зашифрованных видеозвонков.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>RMS MAKS показывает адресную книгу, чтобы вы выбрали, кого найти в MAX. Номера отправляются на сервер MAX только для выбранных контактов.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>RMS MAKS использует микрофон для голосовых и видеозвонков.</string>
 	<key>NSUserNotificationAlertStyle</key>

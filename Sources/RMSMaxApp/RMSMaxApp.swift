@@ -5,6 +5,7 @@ import RMSMaxCore
 struct RMSMaxApp: App {
     @StateObject private var store = AppStore()
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
 
     var body: some Scene {
         WindowGroup {
@@ -22,12 +23,20 @@ struct RMSMaxApp: App {
             }
         }
         .defaultSize(width: 1080, height: 740)
+        .commands { RMSMaksCommands() }
 
         #if os(macOS)
         Settings {
             SettingsView()
                 .environmentObject(store)
                 .frame(minWidth: 520, minHeight: 560)
+        }
+
+        MenuBarExtra(isInserted: $showMenuBarExtra) {
+            MenuBarContent().environmentObject(store)
+        } label: {
+            let unread = store.chats.filter { !$0.isMuted }.reduce(0) { $0 + $1.newMessages }
+            Image(systemName: unread > 0 ? "bubble.left.and.exclamationmark.bubble.right.fill" : "bubble.left.and.bubble.right")
         }
         #endif
     }

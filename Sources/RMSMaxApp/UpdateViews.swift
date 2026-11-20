@@ -86,7 +86,12 @@ struct UpdateSettingsSection: View {
             LabeledContent("Версия", value: "\(AppUpdater.currentVersion) (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
             Toggle("Проверять обновления автоматически", isOn: Binding(get: { store.autoUpdateCheck }, set: { store.autoUpdateCheck = $0 }))
             HStack {
-                Button("Проверить сейчас") { Task { await store.checkForUpdates(manual: true) } }
+                Button("Проверить сейчас") {
+                    Task {
+                        await store.checkForUpdates(manual: true)
+                        if store.availableUpdate != nil { showing = true }
+                    }
+                }
                 if store.availableUpdate != nil { Button("Подробнее") { showing = true } }
                 Spacer()
                 if let s = store.updateStatus { Text(s).font(.caption).foregroundStyle(.secondary) }
