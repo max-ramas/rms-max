@@ -45,15 +45,30 @@ enum MediaHTTP {
         req.setValue("attachment; filename=\(encodeFileName(fileName))", forHTTPHeaderField: "Content-Disposition")
         let plain = isMaxMediaUpload(url)
         if !plain { req.setValue("bytes 0-\(max(0, data.count - 1))/\(data.count)", forHTTPHeaderField: "Content-Range") }
+        let tag = plain ? "max-media" : "range"
+        // 1) Network.framework — the stack that carries the MAX API connection; reports the real HTTP status.
+        do {
+            var headers = ["Content-Type": "application/octet-stream",
+                           "Content-Disposition": "attachment; filename=\(encodeFileName(fileName))"]
+            if !plain { headers["Content-Range"] = "bytes 0-\(max(0, data.count - 1))/\(data.count)" }
+            let r = try await NWHTTPSClient.post(url: url, headers: headers, body: data)
+            let note = (200...299).contains(r.status) ? "" : " body=\(String(decoding: r.body.prefix(200), as: UTF8.self))"
+            ProtocolLog.add("upload[nw] \(tag) \(url.host ?? "?")\(url.path) \(data.count) B -> HTTP \(r.status)\(note)")
+            if let http = HTTPURLResponse(url: url, statusCode: r.status, httpVersion: "HTTP/1.1", headerFields: r.headers) {
+                return (r.body, http)
+            }
+        } catch {
+            ProtocolLog.add("upload[nw] \(tag) \(url.host ?? "?")\(url.path) failed: \(error.localizedDescription) — retrying with URLSession")
+        }
+        // 2) URLSession fallback.
         do {
             let r = try await session.upload(for: req, from: data)
-            ProtocolLog.add("upload \(plain ? "max-media" : "range") \(url.host ?? "?")\(url.path) \(data.count) B -> HTTP \((r.1 as? HTTPURLResponse)?.statusCode ?? -1)")
+            ProtocolLog.add("upload[urlsession] \(tag) \(url.host ?? "?")\(url.path) \(data.count) B -> HTTP \((r.1 as? HTTPURLResponse)?.statusCode ?? -1)")
             return r
         } catch {
             let ns = error as NSError
             let stream = ns.userInfo["_kCFStreamErrorCodeKey"].map { " stream=\($0)" } ?? ""
-            let under = (ns.userInfo[NSUnderlyingErrorKey] as? NSError).map { " underlying=\($0.domain)/\($0.code)" } ?? ""
-            ProtocolLog.add("upload \(plain ? "max-media" : "range") \(url.scheme ?? "?")://\(url.host ?? "?"):\(url.port ?? 443)\(url.path) \(data.count) B failed: \(ns.domain)/\(ns.code)\(stream)\(under)")
+            ProtocolLog.add("upload[urlsession] \(tag) \(url.scheme ?? "?")://\(url.host ?? "?"):\(url.port ?? 443)\(url.path) \(data.count) B failed: \(ns.domain)/\(ns.code)\(stream)")
             throw error
         }
     }
