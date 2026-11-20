@@ -1,4 +1,8 @@
 <div align="center">
+🇷🇺 <b>Русский</b> • 🇬🇧 <a href="README.en.md">English</a>
+</div>
+
+<div align="center">
 
 # 💬 RMS MAKS
 
