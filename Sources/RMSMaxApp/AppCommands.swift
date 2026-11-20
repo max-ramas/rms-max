@@ -6,7 +6,7 @@ import AppKit
 
 /// Window-level actions triggered from the menu bar, the menu-bar extra or keyboard shortcuts.
 enum AppAction: String {
-    case contacts, newGroup, callHistory, joinCall, openLink, checkUpdates, quickSwitch, nextChat, previousChat, createConference
+    case contacts, newGroup, callHistory, joinCall, openLink, checkUpdates, quickSwitch, nextChat, previousChat, createConference, settings
 
     static let notification = Notification.Name("RMSMaksAppAction")
 

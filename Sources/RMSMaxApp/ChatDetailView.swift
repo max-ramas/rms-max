@@ -243,12 +243,37 @@ struct ChatDetailView: View {
         .onExitCommand { if replyTarget != nil { replyTarget = nil } else { store.selectedChatId = nil } }
         #endif
         .toolbar {
+            // Block 1 — calls first.
+            ToolbarItemGroup(placement: .primaryAction) {
+                if chat.type != .channel {
+                    Button {
+                        let peerId = store.dialogPeerId(for: chat)
+                        Task { await store.startCall(chatId: chat.id, peerId: peerId, isVideo: false, secure: callSecureByDefault) }
+                    } label: {
+                        Label("Аудиозвонок", systemImage: "phone.fill")
+                    }
+                    .help("Аудиозвонок")
+                    Button {
+                        let peerId = store.dialogPeerId(for: chat)
+                        Task { await store.startCall(chatId: chat.id, peerId: peerId, isVideo: true, secure: callSecureByDefault) }
+                    } label: {
+                        Label("Видеозвонок", systemImage: "video.fill")
+                    }
+                    .help("Видеозвонок")
+                }
+            }
+            // Block 2 — conferences.
+            ToolbarItemGroup(placement: .primaryAction) {
+                ConferenceMenu()
+            }
+            // Block 3 — this chat.
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     showingInfo = true
                 } label: {
                     Label("Информация", systemImage: "info.circle")
                 }
+                .help("Информация о чате")
                 Button {
                     showingTheme = true
                 } label: {
@@ -265,23 +290,17 @@ struct ChatDetailView: View {
                 .help("Поиск в чате (⌘F)")
                 if chat.type != .channel {
                     Button {
-                        let peerId = store.dialogPeerId(for: chat)
-                        Task { await store.startCall(chatId: chat.id, peerId: peerId, isVideo: false, secure: callSecureByDefault) }
-                    } label: {
-                        Label("Аудиозвонок", systemImage: "phone.fill")
-                    }
-                    Button {
-                        let peerId = store.dialogPeerId(for: chat)
-                        Task { await store.startCall(chatId: chat.id, peerId: peerId, isVideo: true, secure: callSecureByDefault) }
-                    } label: {
-                        Label("Видеозвонок", systemImage: "video.fill")
-                    }
-                    Button {
                         showingE2ESettings = true
                     } label: {
                         Label("Шифрование", systemImage: settings.isActive ? "lock.fill" : "lock.open")
                     }
+                    .help("Сквозное шифрование чата")
                 }
+            }
+            // Block 4 — settings last.
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button { AppAction.settings.post() } label: { Label("Настройки", systemImage: "gearshape") }
+                    .help("Настройки")
             }
         }
         .sheet(item: $forwardTarget) { msg in
@@ -966,5 +985,19 @@ private struct FailedSendRow: View {
             .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.red.opacity(0.12)))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.red.opacity(0.4), lineWidth: 1))
         }
+    }
+}
+
+
+/// «Конференция» menu of the header: create a room or join by link.
+struct ConferenceMenu: View {
+    var body: some View {
+        Menu {
+            Button("Создать конференцию…") { AppAction.createConference.post() }
+            Button("Присоединиться по ссылке…") { AppAction.joinCall.post() }
+        } label: {
+            Label("Конференция", systemImage: "video.badge.plus")
+        }
+        .help("Конференция: создать или присоединиться по ссылке")
     }
 }

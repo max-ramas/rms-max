@@ -100,20 +100,14 @@ struct ContentView: View {
                             systemImage: "lock.shield",
                             description: Text("RMS MAKS — нативный клиент без телеметрии со сквозным шифрованием переписки и звонков.")
                         )
-                    }
-                }
-                // Global actions live in the right-hand panel, next to the chat buttons, where there is room for them.
-                .toolbar {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        Menu {
-                            Button("Создать конференцию…") { showingCreateConference = true }
-                            Button("Присоединиться по ссылке…") { showingJoinCallSheet = true }
-                        } label: {
-                            Label("Конференция", systemImage: "video.badge.plus")
+                        // With a chat open the same actions sit inside the chat's own button blocks (see ChatDetailView).
+                        .toolbar {
+                            ToolbarItemGroup(placement: .primaryAction) {
+                                ConferenceMenu()
+                                Button { AppAction.settings.post() } label: { Label("Настройки", systemImage: "gearshape") }
+                                    .help("Настройки")
+                            }
                         }
-                        .help("Конференция: создать или присоединиться по ссылке")
-                        Button { showingSettings = true } label: { Label("Настройки", systemImage: "gearshape") }
-                            .help("Настройки")
                     }
                 }
             }
@@ -173,6 +167,7 @@ struct ContentView: View {
             case .callHistory: showingCallHistory = true
             case .joinCall: showingJoinCallSheet = true
             case .createConference: showingCreateConference = true
+            case .settings: showingSettings = true
             case .openLink: showingJoinLink = true
             case .quickSwitch: showingQuickSwitch = true
             case .nextChat, .previousChat:
