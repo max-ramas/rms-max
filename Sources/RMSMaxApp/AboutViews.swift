@@ -89,29 +89,29 @@ struct AboutSettingsSection: View {
     }
 }
 
-/// Thin strip at the bottom of the chat list: version, site, support. One tap opens «О программе».
-/// It does not float over chats or nag; it can be hidden in the settings or from its own context menu.
+/// Thin strip at the bottom of the chat list: the site and «Поддержать» (the version is in «О программе», which it opens).
+/// It does not float over chats or nag, never wraps (a narrow list just shows less), and can be hidden in the settings
+/// or from its own context menu.
 struct SupportBar: View {
     @AppStorage("rmsmaks.showSupportBar") private var showSupportBar = true
 
     var body: some View {
         if showSupportBar {
             HStack(spacing: 10) {
-                Button { AppAction.about.post() } label: {
-                    Label("RMS MAKS \(AppInfo.version)", systemImage: "info.circle")
-                }
-                .buttonStyle(.plain)
-                .help("О программе")
-                Spacer()
                 Link("rms-ds.com", destination: AppInfo.website)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
                 Button { AppAction.about.post() } label: {
-                    Label("Поддержать", systemImage: "heart.fill").foregroundStyle(Color.pink)
+                    Label("Поддержать", systemImage: "heart.fill")
+                        .foregroundStyle(Color.pink)
+                        .lineLimit(1)
                 }
                 .buttonStyle(.plain)
-                .help("Поддержать разработку")
+                .help("О программе и поддержка разработки")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .frame(maxWidth: .infinity)
             .background(.bar)

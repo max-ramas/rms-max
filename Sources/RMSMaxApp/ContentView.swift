@@ -116,6 +116,9 @@ struct ContentView: View {
                        let chat = store.chats.first(where: { $0.id == chatId }) {
                         ChatDetailView(chat: chat)
                             .id(chat.id)
+                            #if os(macOS)
+                            .frame(minWidth: 380)
+                            #endif
                     } else {
                         ContentUnavailableView(
                             "Выберите чат",

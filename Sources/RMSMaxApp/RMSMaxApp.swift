@@ -16,6 +16,11 @@ struct RMSMaxApp: App {
             ContentView()
                 .environmentObject(store)
                 .onOpenURL { store.incomingURL = $0 }
+                #if os(macOS)
+                // The chat list (min 400) and the chat (min 380) must always fit, otherwise AppKit squeezes the list
+                // down to a few letters and the toolbar buttons disappear.
+                .frame(minWidth: 800, minHeight: 520)
+                #endif
                 .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
         }
         .onChange(of: scenePhase) { _, phase in
