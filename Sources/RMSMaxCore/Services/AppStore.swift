@@ -15,6 +15,18 @@ public enum AuthStep: Sendable, Equatable {
     case authenticated
 }
 
+/// Thread-safe last NWPath status for the network monitor callback.
+final class PathStatusBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var status: NWPath.Status = .satisfied
+    func swap(_ new: NWPath.Status) -> NWPath.Status {
+        lock.lock(); defer { lock.unlock() }
+        let old = status
+        status = new
+        return old
+    }
+}
+
 @MainActor
 public final class AppStore: ObservableObject {
     @Published public var accounts: [MaxAccount] = []
@@ -137,8 +149,10 @@ public final class AppStore: ObservableObject {
         defer { isBusy = false }
 
         do {
-            let identity = useMobileTransport ? MaxIdentity.generateMobile() : MaxIdentity.generateWeb()
-            _ = try await client.connect(identity: identity, useMobileTransport: useMobileTransport)
+            let reauth = reauthAccountId.flatMap { id in accounts.first { $0.id == id } }
+            let identity = reauth?.identity ?? (useMobileTransport ? MaxIdentity.generateMobile() : MaxIdentity.generateWeb())
+            await client.disconnect()
+            _ = try await client.connect(identity: identity, useMobileTransport: reauth?.useMobileTransport ?? useMobileTransport)
             isConnected = true
             let resp = try await client.startAuth(phone: trimmed)
             self.pendingIdentity = identity
@@ -166,6 +180,11 @@ public final class AppStore: ObservableObject {
     @Published public var authCodeLength: Int?
     private var pendingIdentity: MaxIdentity?
     private var pendingPhone: String?
+    /// The account whose session MAX revoked (`login.token`): the next successful login updates it in place
+    /// (same local id, device identity, chats cache and E2E keys) instead of adding a new account.
+    @Published public internal(set) var reauthAccountId: UInt64?
+    /// Prefill for the phone field after a revoked session.
+    public var reauthPhone: String? { reauthAccountId.flatMap { id in accounts.first { $0.id == id }?.phone } }
 
     public func verifyCode(_ code: String) async {
         let clean = code.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -344,16 +363,25 @@ public final class AppStore: ObservableObject {
             throw MaxTransportError.invalidPayload("Токен авторизации не получен")
         }
         let identity = pendingIdentity ?? (useMobileTransport ? MaxIdentity.generateMobile() : MaxIdentity.generateWeb())
-        let id = UInt64.random(in: 10_000_000...99_999_999)
-        let acc = MaxAccount(
-            id: id,
-            phone: pendingPhone,
-            token: token,
-            identity: identity,
-            useMobileTransport: useMobileTransport,
-            telemetryMode: "disabled"
-        )
-        accounts.append(acc)
+        let acc: MaxAccount
+        if let rid = reauthAccountId, let i = accounts.firstIndex(where: { $0.id == rid }) {
+            accounts[i].token = token
+            accounts[i].identity = identity
+            if let p = pendingPhone { accounts[i].phone = p }
+            acc = accounts[i]
+            ProtocolLog.add("re-login: session of the existing account restored")
+        } else {
+            acc = MaxAccount(
+                id: UInt64.random(in: 10_000_000...99_999_999),
+                phone: pendingPhone,
+                token: token,
+                identity: identity,
+                useMobileTransport: useMobileTransport,
+                telemetryMode: "disabled"
+            )
+            accounts.append(acc)
+        }
+        reauthAccountId = nil
         currentAccount = acc
         try await store.saveAccounts(accounts, currentAccountId: acc.id)
         pendingIdentity = nil
@@ -435,9 +463,35 @@ public final class AppStore: ObservableObject {
         } catch {
             isConnected = false
             ProtocolLog.add("sync failed: \(error.localizedDescription)")
+            if Self.isSessionRevoked(error) {
+                sessionRevoked(account)
+                return
+            }
             if !silent { errorBanner = error.localizedDescription }
             if silent || currentAccount != nil { scheduleReconnect() }
         }
+    }
+
+    /// MAX answered login with `login.token` (session ended from another device, expired or revoked):
+    /// retrying is pointless and looks like abuse — stop, keep all local data, ask the user to log in again.
+    nonisolated static func isSessionRevoked(_ error: Error) -> Bool {
+        if case MaxTransportError.apiError(let v) = error {
+            let code = v["error"]?.stringValue ?? ""
+            return code == "login.token" || code.hasPrefix("login.token")
+        }
+        return false
+    }
+
+    func sessionRevoked(_ account: MaxAccount) {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectAttempt = 0
+        reauthAccountId = account.id
+        isConnected = false
+        Task { await client.disconnect() }
+        ProtocolLog.add("session revoked by server (login.token): reconnects stopped, waiting for re-login")
+        authStep = .phoneInput
+        errorBanner = "MAX завершил сессию этого устройства (выход на другом устройстве или истёк срок). Войдите снова — переписка, контакты и ключи шифрования на этом устройстве сохранятся."
     }
 
     // MARK: - Reconnect
@@ -463,8 +517,12 @@ public final class AppStore: ObservableObject {
     func startNetworkMonitor() {
         guard networkMonitor == nil else { return }
         let monitor = NWPathMonitor()
+        let lastStatus = PathStatusBox()
         monitor.pathUpdateHandler = { [weak self] path in
-            guard path.status == .satisfied else { return }
+            // React only when the network comes back (unsatisfied -> satisfied), not on every path update:
+            // macOS reports updates often, and each one used to reset the back-off to 1 s.
+            let wasDown = lastStatus.swap(path.status) != .satisfied
+            guard path.status == .satisfied, wasDown else { return }
             Task { @MainActor in
                 guard let self, !self.isConnected, self.authStep == .authenticated else { return }
                 self.reconnectTask?.cancel()

@@ -23,7 +23,15 @@ struct AuthView: View {
                 Text("Нативный клиент без телеметрии для macOS и iOS")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                if store.reauthAccountId != nil {
+                    Text("Сессия завершена сервером MAX. Войдите снова — данные на этом устройстве сохранятся.")
+                        .font(.callout)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.orange)
+                        .padding(.top, 4)
+                }
             }
+            .onAppear { if let p = store.reauthPhone, phone.count <= 2 { phone = p.hasPrefix("+") ? p : "+" + p } }
 
             GroupBox {
                 VStack(spacing: 16) {

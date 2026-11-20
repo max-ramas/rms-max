@@ -63,3 +63,11 @@ final class ContactNameTests: XCTestCase {
         XCTAssertNil(plain.profileName)
     }
 }
+
+final class SessionRevokedTests: XCTestCase {
+    func testLoginTokenErrorStopsReconnects() {
+        XCTAssertTrue(AppStore.isSessionRevoked(MaxTransportError.apiError(.object(["error": .string("login.token")]))))
+        XCTAssertFalse(AppStore.isSessionRevoked(MaxTransportError.apiError(.object(["error": .string("proto.state")]))))
+        XCTAssertFalse(AppStore.isSessionRevoked(MaxTransportError.requestTimeout))
+    }
+}
