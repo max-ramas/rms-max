@@ -112,7 +112,14 @@ public actor MaxClient {
         }
 
         let handshakePayload: JSONValue
-        if useMobileTransport {
+        if identity.isDesktop {
+            // Official desktop: {userAgent, deviceId, clientSessionId} — no Android mt_instanceid.
+            handshakePayload = .object([
+                "clientSessionId": .int(1),
+                "userAgent": identity.userAgent.toJSONValue(),
+                "deviceId": .string(identity.deviceId),
+            ])
+        } else if useMobileTransport {
             handshakePayload = .object([
                 "clientSessionId": .int(1),
                 "mt_instanceid": .string(identity.mtInstance),
@@ -132,6 +139,8 @@ public actor MaxClient {
         }
         return resp
     }
+
+    public var isDesktopSession: Bool { identity?.isDesktop ?? false }
 
     public func disconnect() async {
         readerTask?.cancel()
@@ -243,7 +252,8 @@ public actor MaxClient {
             "type": .string(resend ? "RESEND" : "START_AUTH"),
             "language": .string("ru"),
         ]
-        if !isWeb {
+        // Only the Android client sends the APK fingerprint `mode`; web and desktop send phone/type/language.
+        if !isWeb && !identity.isDesktop {
             guard let seed = callsSeed,
                   let version = ApkBuildFingerprint.resolve(version: identity.userAgent.appVersion),
                   let fp = FingerprintGenerator.generate(
@@ -311,7 +321,7 @@ public actor MaxClient {
     /// op 288 → `{trackId, qrLink, expiresAt, pollingInterval, ttl}`; scan the QR in the MAX app
     /// on a phone that is already logged in.
     public func createLoginQR() async throws -> MaxResponse {
-        try await sendAndWait(opcode: 288, payload: .null)
+        try await sendAndWait(opcode: 288, payload: .object([:])) // desktop: EmptyParameters = empty map
     }
 
     /// op 289 → `{status: {loginAvailable, expiresAt, ttl}}`.

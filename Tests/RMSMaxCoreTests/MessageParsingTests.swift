@@ -71,3 +71,18 @@ final class SessionRevokedTests: XCTestCase {
         XCTAssertFalse(AppStore.isSessionRevoked(MaxTransportError.requestTimeout))
     }
 }
+
+final class DesktopIdentityTests: XCTestCase {
+    func testDesktopUserAgentMatchesOfficialClient() {
+        let id = MaxIdentity.generateDesktop()
+        XCTAssertTrue(id.isDesktop)
+        XCTAssertEqual(id.userAgent.deviceType, "DESKTOP")
+        XCTAssertEqual(id.userAgent.appVersion, "26.41.1")
+        XCTAssertEqual(id.userAgent.buildNumber, 83827)
+        let ua = id.userAgent.toJSONValue()
+        XCTAssertNil(ua["screen"], "desktop sends no screen")
+        XCTAssertNil(ua["pushDeviceType"])
+        XCTAssertNotNil(ua["timezone"])
+        XCTAssertFalse(MaxIdentity.generateMobile().isDesktop)
+    }
+}

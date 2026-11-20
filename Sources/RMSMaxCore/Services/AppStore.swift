@@ -150,7 +150,8 @@ public final class AppStore: ObservableObject {
 
         do {
             let reauth = reauthAccountId.flatMap { id in accounts.first { $0.id == id } }
-            let identity = reauth?.identity ?? (useMobileTransport ? MaxIdentity.generateMobile() : MaxIdentity.generateWeb())
+            // Re-login keeps a desktop identity; an old Android one is replaced by the desktop client identity.
+            let identity = (reauth?.identity.isDesktop == true ? reauth?.identity : nil) ?? (useMobileTransport ? MaxIdentity.generateDesktop() : MaxIdentity.generateWeb())
             await client.disconnect()
             _ = try await client.connect(identity: identity, useMobileTransport: reauth?.useMobileTransport ?? useMobileTransport)
             isConnected = true
@@ -184,6 +185,8 @@ public final class AppStore: ObservableObject {
     /// (same local id, device identity, chats cache and E2E keys) instead of adding a new account.
     @Published public internal(set) var reauthAccountId: UInt64?
     /// Prefill for the phone field after a revoked session.
+    /// True when the current session presents as the official desktop client (desktop opcode set available).
+    public var isDesktopSession: Bool { currentAccount?.identity.isDesktop ?? false }
     public var reauthPhone: String? { reauthAccountId.flatMap { id in accounts.first { $0.id == id }?.phone } }
 
     public func verifyCode(_ code: String) async {
@@ -228,7 +231,7 @@ public final class AppStore: ObservableObject {
         errorBanner = nil
         defer { isBusy = false }
         do {
-            let identity = pendingIdentity ?? (useMobileTransport ? MaxIdentity.generateMobile() : MaxIdentity.generateWeb())
+            let identity = pendingIdentity ?? (useMobileTransport ? MaxIdentity.generateDesktop() : MaxIdentity.generateWeb())
             if !(await client.isConnected()) {
                 _ = try await client.connect(identity: identity, useMobileTransport: useMobileTransport)
             }
@@ -269,7 +272,7 @@ public final class AppStore: ObservableObject {
         errorBanner = nil
         defer { isBusy = false }
         do {
-            let identity = pendingIdentity ?? (useMobileTransport ? MaxIdentity.generateMobile() : MaxIdentity.generateWeb())
+            let identity = pendingIdentity ?? (useMobileTransport ? MaxIdentity.generateDesktop() : MaxIdentity.generateWeb())
             if !(await client.isConnected()) {
                 _ = try await client.connect(identity: identity, useMobileTransport: useMobileTransport)
             }
@@ -362,7 +365,7 @@ public final class AppStore: ObservableObject {
         guard let token = await client.currentToken(), !token.isEmpty else {
             throw MaxTransportError.invalidPayload("Токен авторизации не получен")
         }
-        let identity = pendingIdentity ?? (useMobileTransport ? MaxIdentity.generateMobile() : MaxIdentity.generateWeb())
+        let identity = pendingIdentity ?? (useMobileTransport ? MaxIdentity.generateDesktop() : MaxIdentity.generateWeb())
         let acc: MaxAccount
         if let rid = reauthAccountId, let i = accounts.firstIndex(where: { $0.id == rid }) {
             accounts[i].token = token
@@ -458,6 +461,7 @@ public final class AppStore: ObservableObject {
             ProtocolLog.add("synced: \(chats.count) chats, \(contacts.count) contacts")
             Task {
             await self.ensureContacts(for: self.chats)
+            if self.isDesktopSession { await self.loadPresence(Array(self.chats.compactMap { self.dialogPeerId(for: $0) }.prefix(200))) }
         }
             if let open = selectedChatId { Task { await self.loadMessages(chatId: open) } }
         } catch {
@@ -492,6 +496,15 @@ public final class AppStore: ObservableObject {
         ProtocolLog.add("session revoked by server (login.token): reconnects stopped, waiting for re-login")
         authStep = .phoneInput
         errorBanner = "MAX завершил сессию этого устройства (выход на другом устройстве или истёк срок). Войдите снова — переписка, контакты и ключи шифрования на этом устройстве сохранятся."
+    }
+
+    /// Moves an Android-identity session to the desktop client identity: ends the old session on the server (op 20)
+    /// and asks for a login code; the local account (chats cache, E2E keys) is kept and updated in place.
+    public func switchToDesktopClient() async {
+        guard let acc = currentAccount, !acc.identity.isDesktop else { return }
+        try? await client.logout()
+        sessionRevoked(acc)
+        errorBanner = "Войдите снова — RMS MAKS теперь будет представляться серверу как MAX для компьютера. Переписка и ключи шифрования на этом устройстве сохранятся."
     }
 
     // MARK: - Reconnect

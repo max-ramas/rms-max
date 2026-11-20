@@ -51,6 +51,13 @@ public extension AppStore {
     /// and with contacts (op 32 `presence`). Refreshes the contacts to pick it up.
     func loadPresence(_ ids: [Int64]) async {
         guard !ids.isEmpty else { return }
+        if isDesktopSession {
+            // Desktop identity: 35 Contact.Presence {contactIds} -> {presence:{id:{status,seen}}}.
+            if let resp = try? await client.sendAndWait(opcode: 35, payload: .object(["contactIds": .array(ids.prefix(200).map { .int($0) })])) {
+                applyPresenceMap(resp.payload["presence"])
+                return
+            }
+        }
         if let resp = try? await client.getContacts(Array(ids.prefix(100))) {
             applyPresenceMap(resp.payload["presence"])
             for raw in resp.payload["contacts"]?.arrayValue ?? [] {

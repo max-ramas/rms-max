@@ -23,6 +23,13 @@ struct SettingsView: View {
                     #if os(macOS)
                     Toggle("Значок в строке меню", isOn: $showMenuBarExtra)
                     #endif
+                    LabeledContent("Клиент для сервера", value: acc.identity.isDesktop
+                                   ? "MAX для компьютера \(acc.identity.userAgent.appVersion)"
+                                   : "MAX для Android \(acc.identity.userAgent.appVersion)")
+                    if !acc.identity.isDesktop {
+                        Button("Перейти на клиент для компьютера…") { Task { await store.switchToDesktopClient() } }
+                            .help("Нужно будет ввести код из SMS. Открывает истории, ссылки-приглашения и историю звонков в полном объёме.")
+                    }
                     LabeledContent("Транспорт", value: acc.useMobileTransport ? "Mobile TLS (api2.oneme.ru)" : "WebSocket")
                     Button("Редактировать профиль…") { showingProfileEdit = true }
                 }

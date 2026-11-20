@@ -196,12 +196,12 @@ public struct MaxUserAgent: Codable, Sendable, Equatable {
             "appVersion": .string(appVersion),
             "osVersion": .string(osVersion),
             "timezone": .string(timezone),
-            "screen": .string(screen),
             "locale": .string(locale),
             "buildNumber": .int(Int64(buildNumber)),
             "deviceName": .string(deviceName),
             "deviceLocale": .string(deviceLocale),
         ]
+        if !screen.isEmpty { map["screen"] = .string(screen) }
         if let pushDeviceType { map["pushDeviceType"] = .string(pushDeviceType) }
         if let arch { map["arch"] = .string(arch) }
         if let release { map["release"] = .int(Int64(release)) }
@@ -251,6 +251,42 @@ public struct MaxIdentity: Codable, Sendable, Equatable {
             )
         )
     }
+
+    /// The official MAX desktop client (Qt, ru.oneme.desktop) — see docs/official-desktop-protocol.md.
+    /// The server enables the desktop opcode set (stories 219, invite links 221-223, call history 163, presence 35)
+    /// for this device type, and code requests need no Android fingerprint.
+    public static let desktopAppVersion = "26.41.1"
+    public static let desktopBuildNumber: Int32 = 83827
+
+    public static func generateDesktop() -> MaxIdentity {
+        let tz = TimeZone.current.identifier.isEmpty ? "Europe/Moscow" : TimeZone.current.identifier
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        #if os(macOS)
+        let os = "macOS \(v.majorVersion).\(v.minorVersion)"
+        let name = "Mac"
+        #else
+        let os = "iOS \(v.majorVersion).\(v.minorVersion)"
+        let name = "iPhone"
+        #endif
+        let lang = Locale.current.language.languageCode?.identifier ?? "ru"
+        return MaxIdentity(
+            deviceId: UUID().uuidString.lowercased(),
+            mtInstance: "",
+            userAgent: MaxUserAgent(
+                deviceType: "DESKTOP",
+                appVersion: desktopAppVersion,
+                osVersion: os,
+                timezone: tz,
+                screen: "",
+                locale: "ru",
+                buildNumber: desktopBuildNumber,
+                deviceName: name,
+                deviceLocale: lang
+            )
+        )
+    }
+
+    public var isDesktop: Bool { userAgent.deviceType.uppercased().hasPrefix("DESKTOP") }
 
     public static func generateWeb() -> MaxIdentity {
         let tz = TimeZone.current.identifier.isEmpty ? "Europe/Moscow" : TimeZone.current.identifier

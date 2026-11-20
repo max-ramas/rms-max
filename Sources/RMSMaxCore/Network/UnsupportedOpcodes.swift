@@ -4,7 +4,7 @@ import Foundation
 /// right after that error, so such commands must never be sent again — remembered across launches, per app version
 /// (a newer build may use them correctly again).
 public enum UnsupportedOpcodes {
-    private static let key = "rmsmaks.unsupportedOpcodes." + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
+    private static let key = "rmsmaks.unsupportedOpcodes2." + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
     private static let lock = NSLock()
     private static var cache: Set<UInt16> = {
         Set((UserDefaults.standard.array(forKey: key) as? [Int] ?? []).map { UInt16(clamping: $0) })

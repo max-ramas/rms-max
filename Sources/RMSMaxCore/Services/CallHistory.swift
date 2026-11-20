@@ -39,7 +39,11 @@ public extension AppStore {
     /// (163 `callHistorySync` is the web client's command.) Field names of unknown shapes go to the diagnostics log.
     func loadCallHistory() async {
         do {
-            let resp = try await client.sendAndWait(opcode: 79, payload: .object(["forward": .bool(false), "count": .int(100)]))
+            // Desktop identity: 163 Calls.History.Get {callHistorySync} (official desktop); Android: 79 (rumax).
+            let resp = isDesktopSession
+                ? try await client.sendAndWait(opcode: 163, payload: .object(["callHistorySync": .int(0)]))
+                : try await client.sendAndWait(opcode: 79, payload: .object(["forward": .bool(false), "count": .int(100)]))
+            if isDesktopSession { callHistorySync = resp.payload["callHistorySync"]?.int64Value ?? callHistorySync }
             let list = resp.payload["history"]?.arrayValue ?? resp.payload["callHistoryItems"]?.arrayValue
                 ?? resp.payload["calls"]?.arrayValue ?? resp.payload["items"]?.arrayValue ?? []
             let parsed = list.compactMap(CallHistoryItem.init)
