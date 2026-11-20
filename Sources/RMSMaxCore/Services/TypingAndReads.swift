@@ -80,8 +80,8 @@ public extension AppStore {
     }
 
     /// op 22 `{settings:{chats:{id:{dontDisturbUntil}}}}`; -1 = muted forever, 0 = on.
-    func setChatMuted(_ chatId: Int64, muted: Bool) async {
-        let value: Int64 = muted ? -1 : 0
+    func setChatMuted(_ chatId: Int64, muted: Bool, forHours hours: Int? = nil) async {
+        let value: Int64 = !muted ? 0 : (hours.map { Int64(Date().timeIntervalSince1970 * 1000) + Int64($0) * 3_600_000 } ?? -1)
         do {
             _ = try await client.sendAndWait(opcode: 22, payload: .object([
                 "settings": .object(["chats": .object([String(chatId): .object(["dontDisturbUntil": .int(value)])])]),

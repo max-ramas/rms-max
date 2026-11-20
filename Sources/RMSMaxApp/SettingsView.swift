@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var showingProfileEdit = false
     @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
     @AppStorage("youtubePreviews") private var youtubePreviews = true
+    @AppStorage("appearance") private var appearance = "system"
     @AppStorage("voiceFormat") private var voiceFormat = "ogg"
     @State private var notifEnabled = NotificationService.shared.notificationsEnabled
     @State private var notifPreview = NotificationService.shared.showPreview
@@ -118,6 +119,20 @@ struct SettingsView: View {
                 Text("Ссылки")
             } footer: {
                 Text("Обложка ролика загружается с i.ytimg.com. Сам плеер (youtube-nocookie.com, без сохранения cookie) открывается только по нажатию.")
+            }
+
+            Section {
+                Picker("Тема приложения", selection: $appearance) {
+                    Text("Как в системе").tag("system")
+                    Text("Светлая").tag("light")
+                    Text("Тёмная").tag("dark")
+                }
+                ChatThemePicker(chatId: nil)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } header: {
+                Text("Оформление")
+            } footer: {
+                Text("Фон и цвет ваших сообщений. Для отдельного чата тему можно задать кнопкой с палитрой в его заголовке.")
             }
 
             PermissionsSection()

@@ -77,6 +77,11 @@ public final class AppStore: ObservableObject {
     @Published public internal(set) var pinnedByChat: [Int64: [MaxMessage]] = [:]
     /// Views / forwards of channel posts (op 74), keyed "chatId_messageId".
     @Published public internal(set) var postStats: [String: PostStats] = [:]
+    /// Per-chat drafts and messages that failed to send (device-local).
+    @Published public internal(set) var drafts: [Int64: String] = [:]
+    @Published public internal(set) var failedSends: [Int64: [FailedSend]] = [:]
+    /// Comments of channel posts (op 49 with `postId`), keyed "chatId_postId".
+    @Published public internal(set) var commentsByPost: [String: [MaxMessage]] = [:]
     var typingTokens: [String: Int] = [:]
     var lastTypingSent: [Int64: Date] = [:]
     static let sendTypingKey = "rmsmaks.privacy.sendTyping"
@@ -127,6 +132,7 @@ public final class AppStore: ObservableObject {
                 self.isLocked = true
             }
             self.authStep = .authenticated
+            loadDrafts()
             await startEventListener()
             await connectAndSyncAccount(selected)
             Task { await self.prepareCalls(); await self.loadFolders(); await self.loadStoryFeed() } // calls-platform id up front, so the first incoming call works
@@ -405,6 +411,7 @@ public final class AppStore: ObservableObject {
         pendingIdentity = nil
         pendingPhone = nil
         authStep = .authenticated
+        loadDrafts()
         await startEventListener()
         await connectAndSyncAccount(acc)
         Task { await self.prepareCalls(); await self.loadFolders(); await self.loadStoryFeed() } // calls-platform id up front, so the first incoming call works
@@ -472,6 +479,8 @@ public final class AppStore: ObservableObject {
                 let ids = Set(parsed.map(\.id))
                 chats = (parsed + chats.filter { !ids.contains($0.id) }).sorted { $0.lastEventTime > $1.lastEventTime }
             }
+            // Mute lives in the account config (`config.chats[id].dontDisturbUntil`), not in the chat object.
+            applyConfigMutes(await client.serverConfig)
             reconnectAttempt = 0
             ProtocolLog.add("synced: \(chats.count) chats, \(contacts.count) contacts")
             Task {
@@ -639,6 +648,8 @@ public final class AppStore: ObservableObject {
             applyFolders(resp.payload)
         case 293:
             applyTranscription(resp.payload)
+        case 134:
+            applyConfigMutes(resp.payload["config"]) // config change: partial {chats:{id:{dontDisturbUntil}}}
         case 129:
             applyTypingPush(resp.payload)
         case 130:
@@ -693,6 +704,7 @@ public final class AppStore: ObservableObject {
             Task { await self.ensureContacts(resolved.map(\.senderId)) }
             Task { await self.loadPinned(chatId: chatId) }
             Task { await self.loadPostStats(chatId: chatId, messages: resolved) }
+            Task { await self.refreshCommentCounts(chatId: chatId, messages: resolved) }
             if let last = resolved.last, let msgId = Int64(last.id) {
                 _ = try? await client.readMessage(chatId: chatId, messageId: msgId, markMs: last.timeMs)
                 if let idx = chats.firstIndex(where: { $0.id == chatId }) {
@@ -746,7 +758,7 @@ public final class AppStore: ObservableObject {
                 upsertMessage(parsed, inChat: chatId, isIncomingPush: false)
             }
         } catch {
-            errorBanner = error.localizedDescription
+            recordFailedSend(chatId: chatId, text: trimmed, replyToId: replyToId, attachment: nil, error: error)
         }
     }
 
@@ -1545,7 +1557,8 @@ public final class AppStore: ObservableObject {
             attaches: attaches,
             reactions: reactions,
             decrypted: nil,
-            forwardedFromId: forwardedFrom
+            forwardedFromId: forwardedFrom,
+            commentsCount: v["commentsInfo"]?["totalCount"]?.int64Value.map(Int.init)
         )
     }
 
@@ -1574,6 +1587,7 @@ public final class AppStore: ObservableObject {
                 poll: type == "POLL" ? MaxPoll.parse(a) : nil,
                 keyboard: type == "INLINE_KEYBOARD" ? BotKeyboard.parse(a) : nil
             )
+            att.videoType = a["videoType"]?.int64Value.map(Int.init)
             switch type {
             case "SHARE":
                 if let url = a["url"]?.stringValue, !url.isEmpty {

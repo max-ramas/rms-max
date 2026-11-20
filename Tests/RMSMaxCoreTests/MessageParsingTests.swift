@@ -184,3 +184,65 @@ final class PermissionStateTests: XCTestCase {
         XCTAssertEqual(PermissionState.from(CNAuthorizationStatus.authorized), .granted)
     }
 }
+
+@MainActor
+final class ChatMuteConfigTests: XCTestCase {
+    func testMuteComesFromAccountConfig() {
+        let store = AppStore()
+        store.chats = [
+            MaxChat(id: 7, type: .dialog, title: "", avatarURL: nil, lastEventTime: 0, newMessages: 0,
+                    dontDisturbUntil: 0, participants: [:], lastMessage: nil, pinnedMessageId: nil),
+        ]
+        store.applyConfigMutes(.object(["chats": .object(["7": .object(["dontDisturbUntil": .int(-1)])])]))
+        XCTAssertTrue(store.chats[0].isMuted, "login config carries the mute, the chat object does not")
+        store.applyConfigMutes(.object(["chats": .object(["7": .object(["dontDisturbUntil": .int(0)])])]))
+        XCTAssertFalse(store.chats[0].isMuted)
+    }
+}
+
+@MainActor
+final class DraftsCommentsCirclesTests: XCTestCase {
+    func testDraftsAreKeptPerChatAndEmptyOnesDropped() {
+        let store = AppStore()
+        UserDefaults.standard.removeObject(forKey: "rmsmaks.drafts.0")
+        store.setDraft(chatId: 5, text: "привет")
+        store.setDraft(chatId: 6, text: "   ")
+        XCTAssertEqual(store.drafts[5], "привет")
+        XCTAssertNil(store.drafts[6], "a whitespace-only draft is not a draft")
+        let again = AppStore()
+        again.loadDrafts()
+        XCTAssertEqual(again.drafts[5], "привет", "drafts survive a restart")
+        store.setDraft(chatId: 5, text: "")
+        XCTAssertNil(store.drafts[5])
+        UserDefaults.standard.removeObject(forKey: "rmsmaks.drafts.0")
+    }
+
+    func testFailedSendIsKeptAndDiscarded() {
+        let store = AppStore()
+        struct E: Error {}
+        store.recordFailedSend(chatId: 9, text: "не ушло", replyToId: nil, attachment: nil, error: E())
+        XCTAssertEqual(store.failedSends[9]?.count, 1)
+        XCTAssertEqual(store.failedSends[9]?.first?.preview, "не ушло")
+        store.discardFailedSend(store.failedSends[9]![0])
+        XCTAssertNil(store.failedSends[9], "no empty arrays left behind")
+    }
+
+    func testVideoMessageAndCommentsCountParsing() {
+        let store = AppStore()
+        let m = store.parseMessage(.object([
+            "id": .string("100"), "sender": .int(1), "text": .string("пост"), "time": .int(1),
+            "commentsInfo": .object(["totalCount": .int(12)]),
+            "attaches": .array([.object(["_type": .string("VIDEO"), "videoId": .int(5), "videoType": .int(1), "duration": .int(4200)])]),
+        ]), chatId: 3)
+        XCTAssertEqual(m.commentsCount, 12)
+        XCTAssertTrue(m.attaches[0].isVideoMessage)
+        let plain = store.parseMessage(.object(["id": .string("101"), "sender": .int(1), "time": .int(1),
+                                                "attaches": .array([.object(["_type": .string("VIDEO"), "videoId": .int(6)])])]), chatId: 3)
+        XCTAssertNil(plain.commentsCount)
+        XCTAssertFalse(plain.attaches[0].isVideoMessage)
+        XCTAssertEqual(AppStore.commentsWord(1), "комментарий")
+        XCTAssertEqual(AppStore.commentsWord(3), "комментария")
+        XCTAssertEqual(AppStore.commentsWord(12), "комментариев")
+        XCTAssertEqual(AppStore.commentsWord(21), "комментарий")
+    }
+}

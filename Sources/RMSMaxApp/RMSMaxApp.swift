@@ -6,11 +6,13 @@ struct RMSMaxApp: App {
     @StateObject private var store = AppStore()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
+    @AppStorage("appearance") private var appearance = "system"
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -30,6 +32,7 @@ struct RMSMaxApp: App {
         Settings {
             SettingsView()
                 .environmentObject(store)
+                .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
                 .frame(minWidth: 520, minHeight: 560)
         }
 

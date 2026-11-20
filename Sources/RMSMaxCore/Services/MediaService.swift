@@ -149,6 +149,11 @@ extension MaxClient {
         return fileId
     }
 
+    /// opcode 82 `type: 1` — round video message («кружок»), processed on the server (uploaderType 0).
+    public func uploadVideoMessage(data: Data) async throws -> (videoId: Int64, token: String) {
+        try await uploadToVideoPlatform(data: data, uploaderType: 0, type: 1, fileName: "video-message.mp4")
+    }
+
     /// opcode 82 (uploaderType 0, type 0) → raw POST → (videoId, token).
     public func uploadVideo(data: Data) async throws -> (videoId: Int64, token: String) {
         try await uploadToVideoPlatform(data: data, uploaderType: 0, type: 0, fileName: "video.mp4")
@@ -395,12 +400,17 @@ extension AppStore {
                 upsertMessage(parsed, inChat: chatId, isIncomingPush: false)
             }
         } catch {
-            errorBanner = error.localizedDescription
+            recordFailedSend(
+                chatId: chatId, text: caption.trimmingCharacters(in: .whitespacesAndNewlines), replyToId: nil,
+                attachment: FailedSend.Attachment(data: data, fileName: fileName, mime: mime, width: width, height: height,
+                                                  durationMs: durationMs, wave: wave),
+                error: error
+            )
         }
     }
 
     /// The server needs a moment to process a fresh upload; it answers "attachment.not.ready" meanwhile.
-    private func sendWithRetry(chatId: Int64, text: String, attaches: [JSONValue]) async throws -> MaxResponse {
+    func sendWithRetry(chatId: Int64, text: String, attaches: [JSONValue]) async throws -> MaxResponse {
         var lastError: Error?
         for attempt in 0..<6 {
             do {
@@ -499,6 +509,37 @@ extension AppStore {
             return target
         case .other:
             throw MediaError.unsupported("Этот тип вложения пока не поддерживается")
+        }
+    }
+}
+
+public extension AppStore {
+    /// Round video message: op 82 `{count:1, type:1, uploaderType:0}` (server-side processing), then a `VIDEO` attach with
+    /// `videoType: 1` and the duration. In an end-to-end chat the clip goes as a normal encrypted video instead.
+    func sendVideoMessage(chatId: Int64, data: Data, durationMs: Int, width: Int = 480, height: Int = 480) async {
+        let settings = chatSettingsByChat[chatId] ?? ChatE2ESettings()
+        if settings.isActive {
+            await sendAttachment(chatId: chatId, data: data, fileName: "video-message.mp4", mime: "video/mp4",
+                                 width: width, height: height, durationMs: durationMs)
+            return
+        }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let v = try await client.uploadVideoMessage(data: data)
+            var attach: [String: JSONValue] = [
+                "_type": .string("VIDEO"), "videoId": .int(v.videoId), "videoType": .int(1), "duration": .int(Int64(durationMs)),
+            ]
+            if !v.token.isEmpty { attach["token"] = .string(v.token) }
+            let resp = try await sendWithRetry(chatId: chatId, text: "", attaches: [.object(attach)])
+            if let msg = resp.payload["message"] { upsertMessage(parseMessage(msg, chatId: chatId), inChat: chatId, isIncomingPush: false) }
+        } catch {
+            recordFailedSend(
+                chatId: chatId, text: "", replyToId: nil,
+                attachment: FailedSend.Attachment(data: data, fileName: "video-message.mp4", mime: "video/mp4", width: width, height: height,
+                                                  durationMs: durationMs, wave: nil, isVideoMessage: true),
+                error: error
+            )
         }
     }
 }

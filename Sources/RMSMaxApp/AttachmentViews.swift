@@ -59,7 +59,11 @@ struct MessageAttachmentsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(items) { item in
-                AttachmentCell(item: item, message: message)
+                if item.attachment.isVideoMessage {
+                    VideoMessageView(message: message, attachment: item.attachment)
+                } else {
+                    AttachmentCell(item: item, message: message)
+                }
             }
         }
     }

@@ -415,6 +415,8 @@ public struct MaxAttachment: Codable, Sendable, Equatable, Identifiable {
     public var share: LinkShare? = nil
     /// `_type: CONTROL` service event (`event`, `userIds`, `title`).
     public var control: ControlEvent? = nil
+    /// `VIDEO` attach: 1 = round video message («кружок»).
+    public var videoType: Int? = nil
     /// `_type: CONTACT`.
     public var contactId: Int64? = nil
     /// `_type: LOCATION`.
@@ -422,6 +424,7 @@ public struct MaxAttachment: Codable, Sendable, Equatable, Identifiable {
     public var longitude: Double? = nil
 
     public var kind: AttachmentKind { AttachmentKind(rawType: type) }
+    public var isVideoMessage: Bool { kind == .video && videoType == 1 }
 }
 
 public struct LinkShare: Codable, Sendable, Equatable {
@@ -628,6 +631,8 @@ public struct MaxMessage: Codable, Sendable, Equatable, Identifiable {
     public var decrypted: DecryptedMessageState?
     /// Author of the original message when this one is a forward (`link.type == FORWARD`).
     public var forwardedFromId: Int64? = nil
+    /// Channel posts: number of comments (`commentsInfo.totalCount`); nil when comments are not enabled for the post.
+    public var commentsCount: Int? = nil
 
     /// Text body only (decrypted when E2E), without attachment placeholders.
     public var bodyText: String {

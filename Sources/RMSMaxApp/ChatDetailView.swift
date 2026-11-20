@@ -18,6 +18,9 @@ struct ChatDetailView: View {
     @State private var showingStickers = false
     @State private var showingPinned = false
     @State private var showingChatSearch = false
+    @State private var showingTheme = false
+    @State private var showingCircle = false
+    @ObservedObject private var themes = ChatThemeStore.shared
     @State private var pinIndex = 0
     @State private var showingE2ESettings = false
     @State private var showingInfo = false
@@ -111,6 +114,7 @@ struct ChatDetailView: View {
                                 senderName: store.contacts[msg.senderId]?.name ?? "Участник",
                                 isGroup: chat.type == .chat,
                                 stats: store.postStats["\(chat.id)_\(msg.id)"],
+                                outgoingColor: themes.theme(for: chat.id).outgoing,
                                 showsTicks: chat.type == .dialog,
                                 isRead: msg.timeMs <= store.peerReadMark(in: liveChat),
                                 onReply: { replyTarget = msg },
@@ -139,6 +143,10 @@ struct ChatDetailView: View {
                                     .fill(Color.yellow.opacity(highlightedId == msg.id ? 0.25 : 0))
                             )
                         }
+
+                        ForEach(store.failedSends[chat.id] ?? []) { item in
+                            FailedSendRow(item: item)
+                        }
                     }
                     .padding(14)
                 }
@@ -160,6 +168,7 @@ struct ChatDetailView: View {
                     if let target { jump(to: target, proxy: proxy) }
                 }
             }
+            .background(ChatWallpaper(theme: themes.theme(for: chat.id)))
 
             Divider()
 
@@ -219,6 +228,7 @@ struct ChatDetailView: View {
         }
         .navigationTitle(store.resolvedChatTitle(chat))
         .sheet(isPresented: $showingChatSearch) { ChatSearchSheet(chatId: chat.id) }
+        .onAppear { restoreDraft() }
         .background {
             Group {
                 Button("") { replyToLast() }.keyboardShortcut("r", modifiers: .command)
@@ -237,6 +247,13 @@ struct ChatDetailView: View {
                 } label: {
                     Label("Информация", systemImage: "info.circle")
                 }
+                Button {
+                    showingTheme = true
+                } label: {
+                    Label("Фон чата", systemImage: "paintpalette")
+                }
+                .help("Фон и цвета чата")
+                .popover(isPresented: $showingTheme) { ChatThemePicker(chatId: chat.id) }
                 Button {
                     showingChatSearch = true
                 } label: {
@@ -449,6 +466,7 @@ struct ChatDetailView: View {
             .onSubmit { send() }
             .pasteImageHandler { sendPasted($0) }
             .onChange(of: draftText) { old, new in
+                if editTarget == nil { store.setDraft(chatId: chat.id, text: new) }
                 if new.count > old.count, !new.trimmingCharacters(in: .whitespaces).isEmpty { store.sendTyping(chatId: chat.id) }
             }
 
@@ -463,6 +481,14 @@ struct ChatDetailView: View {
             #endif
 
             if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button { showingCircle = true } label: {
+                    Image(systemName: "video.circle.fill").font(.title2)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .disabled(store.isBusy)
+                .help("Записать видеосообщение (кружок)")
+                .sheet(isPresented: $showingCircle) { CircleRecorderSheet(chatId: chat.id) }
                 Button {
                     startRecording()
                 } label: {
@@ -482,6 +508,10 @@ struct ChatDetailView: View {
             }
         }
         .padding(12)
+    }
+
+    private func restoreDraft() {
+        if draftText.isEmpty, let d = store.drafts[chat.id] { draftText = d }
     }
 
     private func startRecording() {
@@ -618,6 +648,8 @@ private struct MessageBubbleView: View {
     let senderName: String
     let isGroup: Bool
     var stats: PostStats? = nil
+    /// Outgoing bubble colour of the chat theme (nil = default look).
+    var outgoingColor: Color? = nil
     var showsTicks = false
     var isRead = false
     let onReply: () -> Void
@@ -689,6 +721,7 @@ private struct MessageBubbleView: View {
                 if let link = share?.url ?? firstLink(in: body) {
                     LinkCardView(url: link, share: share)
                 }
+                CommentsButton(message: message)
 
                 HStack(spacing: 6) {
                     if message.decrypted?.isEncrypted == true {
@@ -735,9 +768,10 @@ private struct MessageBubbleView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .foregroundStyle(isMe && outgoingColor != nil ? Color.white : Color.primary)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isMe ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12))
+                    .fill(isMe ? (outgoingColor.map { $0.opacity(0.88) } ?? Color.accentColor.opacity(0.18)) : Color.secondary.opacity(0.12))
             )
             .contextMenu {
                 Button("Ответить", action: onReply)
@@ -882,5 +916,40 @@ private struct ChatE2ESettingsSheet: View {
             }
         }
         .macSheet(width: 500, height: 440)
+    }
+}
+
+
+/// «Не отправлено»: the message stays on the device until it is sent again or deleted.
+private struct FailedSendRow: View {
+    @EnvironmentObject private var store: AppStore
+    let item: FailedSend
+    @State private var retrying = false
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 60)
+            VStack(alignment: .trailing, spacing: 6) {
+                Text(item.preview).textSelection(.enabled)
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+                    Text("Не отправлено").font(.caption.bold()).foregroundStyle(.red)
+                }
+                Text(item.error).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+                HStack {
+                    Button("Удалить", role: .destructive) { store.discardFailedSend(item) }
+                    Button(retrying ? "Отправляем…" : "Повторить") {
+                        retrying = true
+                        Task { await store.retryFailedSend(item); retrying = false }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(retrying)
+                }
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.red.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.red.opacity(0.4), lineWidth: 1))
+        }
     }
 }

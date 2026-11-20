@@ -412,6 +412,15 @@ private struct ChatRowView: View {
                         .font(.subheadline)
                         .foregroundStyle(Color.accentColor)
                         .lineLimit(1)
+                } else if let draft = store.drafts[chat.id], store.selectedChatId != chat.id {
+                    (Text("Черновик: ").foregroundStyle(.red) + Text(draft.replacingOccurrences(of: "\n", with: " ")).foregroundStyle(.secondary))
+                        .font(.subheadline)
+                        .lineLimit(1)
+                } else if (store.failedSends[chat.id]?.isEmpty == false) {
+                    Label("Не отправлено", systemImage: "exclamationmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                        .lineLimit(1)
                 } else if let last = chat.lastMessage {
                     Text(last.displayText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression))
                         .font(.subheadline)
@@ -443,8 +452,15 @@ private struct ChatRowView: View {
             if chat.newMessages > 0 {
                 Button("Отметить прочитанным") { Task { await store.markChatRead(chat.id) } }
             }
-            Button(chat.isMuted ? "Включить уведомления" : "Отключить уведомления") {
-                Task { await store.setChatMuted(chat.id, muted: !chat.isMuted) }
+            if chat.isMuted {
+                Button("Включить уведомления") { Task { await store.setChatMuted(chat.id, muted: false) } }
+            } else {
+                Menu("Отключить уведомления") {
+                    Button("На 1 час") { Task { await store.setChatMuted(chat.id, muted: true, forHours: 1) } }
+                    Button("На 8 часов") { Task { await store.setChatMuted(chat.id, muted: true, forHours: 8) } }
+                    Button("На 2 дня") { Task { await store.setChatMuted(chat.id, muted: true, forHours: 48) } }
+                    Button("Навсегда") { Task { await store.setChatMuted(chat.id, muted: true) } }
+                }
             }
             Button(store.isChatPinned(chat.id) ? "Открепить чат" : "Закрепить чат") {
                 Task { await store.togglePinChat(chat.id) }
