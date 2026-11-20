@@ -6,8 +6,12 @@ import Foundation
 public enum UnsupportedOpcodes {
     private static let key = "rmsmaks.unsupportedOpcodes2." + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
     private static let lock = NSLock()
+    /// Rejected by the live server for every client type we have tried — each of them also drops the connection («EOF»),
+    /// so they are never sent: 241 (PinnedMessages.Get).
+    private static let knownRejected: Set<UInt16> = [241]
+
     private static var cache: Set<UInt16> = {
-        Set((UserDefaults.standard.array(forKey: key) as? [Int] ?? []).map { UInt16(clamping: $0) })
+        knownRejected.union((UserDefaults.standard.array(forKey: key) as? [Int] ?? []).map { UInt16(clamping: $0) })
     }()
 
     public static func contains(_ op: UInt16) -> Bool {

@@ -246,3 +246,24 @@ final class DraftsCommentsCirclesTests: XCTestCase {
         XCTAssertEqual(AppStore.commentsWord(21), "комментарий")
     }
 }
+
+@MainActor
+final class MuteCacheTests: XCTestCase {
+    func testMuteSurvivesALoginWithoutConfig() {
+        let store = AppStore()
+        UserDefaults.standard.removeObject(forKey: "rmsmaks.mutes.0")
+        store.chats = [MaxChat(id: 4, type: .chat, title: "", avatarURL: nil, lastEventTime: 0, newMessages: 0,
+                               dontDisturbUntil: 0, participants: [:], lastMessage: nil, pinnedMessageId: nil)]
+        store.applyConfigMutes(.object(["chats": .object(["4": .object(["dontDisturbUntil": .int(-1)])])]))
+        // a later login answer has no config at all: chats are re-parsed with 0
+        store.chats[0].dontDisturbUntil = 0
+        store.applyConfigMutes(nil)
+        store.applyStoredMutes()
+        XCTAssertTrue(store.chats[0].isMuted)
+        UserDefaults.standard.removeObject(forKey: "rmsmaks.mutes.0")
+    }
+
+    func testKnownRejectedOpcodeIsNeverSent() {
+        XCTAssertTrue(UnsupportedOpcodes.contains(241))
+    }
+}

@@ -436,7 +436,9 @@ public final class AppStore: ObservableObject {
             // We keep no local copy of chats/contacts, so every login asks for the FULL state
             // (sync markers -1). Incremental markers made the server return only changes → empty list.
             let savedSync = await store.loadSyncState(accountId: account.id)
-            let request = SyncState(configHash: savedSync.configHash)
+            // No saved config hash: with a known hash the server omits `config` when it is unchanged, and the per-chat mute
+            // settings live in that config — they would be lost after every reconnect/restart.
+            let request = SyncState()
             let (loginResp, login2Resp, nextSync) = try await client.sync(state: request)
             self.syncState = nextSync
             try? await store.saveSyncState(nextSync, accountId: account.id)
@@ -480,6 +482,7 @@ public final class AppStore: ObservableObject {
                 chats = (parsed + chats.filter { !ids.contains($0.id) }).sorted { $0.lastEventTime > $1.lastEventTime }
             }
             // Mute lives in the account config (`config.chats[id].dontDisturbUntil`), not in the chat object.
+            applyStoredMutes()
             applyConfigMutes(await client.serverConfig)
             reconnectAttempt = 0
             ProtocolLog.add("synced: \(chats.count) chats, \(contacts.count) contacts")

@@ -87,6 +87,7 @@ public extension AppStore {
                 "settings": .object(["chats": .object([String(chatId): .object(["dontDisturbUntil": .int(value)])])]),
             ]))
             if let i = chats.firstIndex(where: { $0.id == chatId }) { chats[i].dontDisturbUntil = value }
+            rememberMute(chatId: chatId, until: value)
         } catch {
             errorBanner = "Не удалось изменить уведомления: \(error.localizedDescription)"
         }
