@@ -31,6 +31,13 @@ struct GroupInfoView: View {
     @State private var showingPhotoImporter = false
     @State private var showingLeaveConfirm = false
     @State private var renameTarget: MaxContact?
+    @State private var complaint: ComplaintRequest?
+
+    struct ComplaintRequest: Identifiable {
+        let id = UUID()
+        let target: ComplaintTarget
+        let ids: [Int64]
+    }
 
     private static let optionLabels: [(key: String, label: String)] = [
         ("JOIN_REQUEST", "Вступление по заявке"),
@@ -61,6 +68,9 @@ struct GroupInfoView: View {
         }
         .navigationTitle(chat.map { store.resolvedChatTitle($0) } ?? "Информация")
         .task { await reload() }
+        .sheet(item: $complaint) { c in
+            ComplaintSheet(target: c.target, ids: c.ids, parentId: nil)
+        }
         .sheet(item: $renameTarget) { c in
             RenameContactSheet(contact: c)
         }
@@ -137,6 +147,9 @@ struct GroupInfoView: View {
                     Button("Переименовать…") { renameTarget = peer }
                     Button("Удалить из контактов", role: .destructive) {
                         Task { await store.contactAction(pid, action: "REMOVE") }
+                    }
+                    Button("Пожаловаться…", role: .destructive) {
+                        complaint = ComplaintRequest(target: .userProfile, ids: [pid])
                     }
                 }
             }
@@ -308,6 +321,9 @@ struct GroupInfoView: View {
             }
 
             Section {
+                Button("Пожаловаться на группу…", role: .destructive) {
+                    complaint = ComplaintRequest(target: chat.type == .channel ? .channel : .chat, ids: [chat.id])
+                }
                 Button("Покинуть группу", role: .destructive) {
                     showingLeaveConfirm = true
                 }

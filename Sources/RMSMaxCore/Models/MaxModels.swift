@@ -371,8 +371,86 @@ public struct MaxAttachment: Codable, Sendable, Equatable, Identifiable {
     public var token: String? = nil
     /// Voice waveform (0…120 per sample) when the server provides it.
     public var wave: [UInt8]? = nil
+    /// `_type: POLL` attachments.
+    public var poll: MaxPoll? = nil
+    /// `_type: INLINE_KEYBOARD` (bot buttons).
+    public var keyboard: BotKeyboard? = nil
 
     public var kind: AttachmentKind { AttachmentKind(rawType: type) }
+}
+
+public struct BotKeyboard: Codable, Sendable, Equatable {
+    public struct Button: Codable, Sendable, Equatable, Identifiable {
+        public var id: String { "\(type)|\(text)|\(payload ?? url ?? "")" }
+        public let type: String    // LINK CALLBACK CHAT CLIPBOARD MESSAGE REQUEST_CONTACT REQUEST_GEO_LOCATION OPEN_APP
+        public let text: String
+        public let payload: String?
+        public let url: String?
+    }
+    public let callbackId: String
+    public let rows: [[Button]]
+
+    public static func parse(_ a: JSONValue) -> BotKeyboard? {
+        guard let cb = a["callbackId"]?.stringValue else { return nil }
+        let rows = (a["keyboard"]?["buttons"]?.arrayValue ?? []).map { row in
+            (row.arrayValue ?? []).map { b in
+                Button(type: b["type"]?.stringValue ?? "CALLBACK", text: b["text"]?.stringValue ?? "",
+                       payload: b["payload"]?.stringValue, url: b["url"]?.stringValue)
+            }
+        }
+        return BotKeyboard(callbackId: cb, rows: rows)
+    }
+}
+
+public struct MaxPoll: Codable, Sendable, Equatable {
+    public struct Answer: Codable, Sendable, Equatable, Identifiable {
+        public let id: Int
+        public let text: String
+        public var votes: Int
+        public var percent: Int?
+        public var votedByMe: Bool
+    }
+    public let pollId: Int64
+    public let title: String
+    public let settings: Int
+    public var answers: [Answer]
+    public var total: Int
+
+    public var isAnonymous: Bool { settings & 1 != 0 }
+    public var isMultiple: Bool { settings & 2 != 0 }
+    public var canRevote: Bool { settings & 4 != 0 }
+    public var isClosed: Bool { settings & 8 != 0 }
+    public var isQuiz: Bool { settings & 16 != 0 }
+    public var hasVoted: Bool { answers.contains(where: \.votedByMe) }
+
+    /// From the attachment (`answers`) plus its `state.result`.
+    public static func parse(_ a: JSONValue) -> MaxPoll? {
+        guard let id = a["pollId"]?.int64Value else { return nil }
+        var poll = MaxPoll(
+            pollId: id,
+            title: a["title"]?.stringValue ?? "Опрос",
+            settings: Int(a["settings"]?.int64Value ?? 0),
+            answers: (a["answers"]?.arrayValue ?? []).map {
+                Answer(id: Int($0["answerId"]?.int64Value ?? 0), text: $0["text"]?.stringValue ?? "", votes: 0, percent: nil, votedByMe: false)
+            },
+            total: 0
+        )
+        poll.apply(state: a["state"])
+        return poll
+    }
+
+    /// `state: {total, result: [{answerId, voteCount, rate, options(bit 1 = my vote)}]}`.
+    public mutating func apply(state: JSONValue?) {
+        guard let state else { return }
+        total = Int(state["total"]?.int64Value ?? Int64(total))
+        for r in state["result"]?.arrayValue ?? [] {
+            let aid = Int(r["answerId"]?.int64Value ?? 0)
+            guard let i = answers.firstIndex(where: { $0.id == aid }) else { continue }
+            answers[i].votes = Int(r["voteCount"]?.int64Value ?? 0)
+            answers[i].percent = r["rate"]?.int64Value.map(Int.init)
+            answers[i].votedByMe = (r["options"]?.int64Value ?? 0) & 1 != 0
+        }
+    }
 }
 
 public enum AttachmentKind: String, Sendable {

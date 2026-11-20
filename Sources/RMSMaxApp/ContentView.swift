@@ -14,9 +14,17 @@ struct ContentView: View {
     @State private var joinVideoCall = false
     @State private var newGroupTitle = ""
 
+    @State private var showingFolders = false
+    @State private var showingJoinLink = false
+
+    private var folderChats: [MaxChat] {
+        guard let id = store.selectedFolderId, let f = store.folders.first(where: { $0.id == id }) else { return store.chats }
+        return store.chats(in: f)
+    }
+
     var filteredChats: [MaxChat] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return store.chats }
+        guard !q.isEmpty else { return folderChats }
         return store.chats.filter {
             store.resolvedChatTitle($0).lowercased().contains(q)
                 || ($0.lastMessage?.displayText.lowercased().contains(q) ?? false)
@@ -32,6 +40,23 @@ struct ContentView: View {
             } else {
                 NavigationSplitView {
                     chatListSidebar
+                        .safeAreaInset(edge: .top) {
+                            VStack(spacing: 0) {
+                                StoriesBar()
+                                if !store.folders.isEmpty || store.isConnected {
+                                    FolderBar(showingManager: $showingFolders)
+                                }
+                            }
+                        }
+                        .sheet(isPresented: $showingFolders) {
+                            NavigationStack {
+                                FolderManagerView()
+                                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Готово") { showingFolders = false } } }
+                            }
+                            #if os(macOS)
+                            .frame(minWidth: 420, minHeight: 460)
+                            #endif
+                        }
                         .navigationTitle("RMS MAKS")
                         .searchable(text: $searchText, prompt: "Поиск чатов и сообщений")
                         .task(id: searchText) {
@@ -45,6 +70,11 @@ struct ContentView: View {
                                     showingNewGroupSheet = true
                                 } label: {
                                     Label("Новая группа", systemImage: "square.and.pencil")
+                                }
+                                Button {
+                                    showingJoinLink = true
+                                } label: {
+                                    Label("Открыть ссылку", systemImage: "link")
                                 }
                                 Button {
                                     showingCallHistory = true
@@ -114,6 +144,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingNewGroupSheet) {
             newGroupSheet
+        }
+        .sheet(isPresented: $showingJoinLink) {
+            JoinByLinkSheet()
         }
         .sheet(isPresented: $showingCallHistory) {
             NavigationStack {

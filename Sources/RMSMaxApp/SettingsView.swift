@@ -77,6 +77,17 @@ struct SettingsView: View {
             }
             #endif
 
+            Section {
+                Toggle("Расшифровка голосовых", isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: AppStore.transcriptionSettingKey) },
+                    set: { UserDefaults.standard.set($0, forKey: AppStore.transcriptionSettingKey); store.objectWillChange.send() }
+                ))
+            } header: {
+                Text("Голосовые сообщения")
+            } footer: {
+                Text("Речь распознаёт сервер MAX — только по нажатию «Расшифровать». Для зашифрованных (E2E) голосовых недоступно.")
+            }
+
             Section("Уведомления (macOS / iOS)") {
                 Toggle("Показывать уведомления", isOn: $notifEnabled)
                     .onChange(of: notifEnabled) { _, v in NotificationService.shared.notificationsEnabled = v }

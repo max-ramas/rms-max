@@ -247,6 +247,18 @@ public enum MediaCache {
     public static func clear() {
         try? FileManager.default.removeItem(at: directory)
     }
+
+    /// Remote image bytes (stickers, avatars) cached on disk by URL hash; fetched through the
+    /// Max-aware session (Max CDNs may use the Russian Trusted CA).
+    public static func remoteImage(_ urlString: String) async -> Data? {
+        guard let url = URL(string: urlString) else { return nil }
+        let key = SHA256.hash(data: Data(urlString.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        let file = self.url(key: "img", fileName: key)
+        if let data = try? Data(contentsOf: file) { return data }
+        guard let data = try? await MediaHTTP.get(url) else { return nil }
+        try? data.write(to: file, options: .atomic)
+        return data
+    }
 }
 
 // MARK: - App-level media flows

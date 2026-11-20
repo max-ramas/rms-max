@@ -52,6 +52,14 @@ public final class AppStore: ObservableObject {
     @Published public internal(set) var callRemoteVideos: [Int64: CallVideoTrack] = [:]
     @Published public internal(set) var callHistory: [CallHistoryItem] = []
     @Published public internal(set) var blockedContacts: [MaxContact] = []
+    @Published public internal(set) var stickerPacks: [StickerPack] = []
+    @Published public internal(set) var folders: [ChatFolder] = []
+    @Published public internal(set) var storyPreviews: [StoryPreview] = []
+    /// Voice transcriptions by "chatId:messageId".
+    @Published public internal(set) var transcriptions: [String: String] = [:]
+    @Published public var selectedFolderId: String? = nil
+    @Published public internal(set) var stickerCache: [Int64: Sticker] = [:]
+    var complaintReasonCache: [Int: [ComplaintReason]] = [:]
     var callHistorySync: Int64 = 0
     private let store = SecureStore.shared
     private var eventTask: Task<Void, Never>?
@@ -81,7 +89,7 @@ public final class AppStore: ObservableObject {
             self.authStep = .authenticated
             await startEventListener()
             await connectAndSyncAccount(selected)
-            Task { await self.prepareCalls() } // calls-platform id up front, so the first incoming call works
+            Task { await self.prepareCalls(); await self.loadFolders(); await self.loadStoryFeed() } // calls-platform id up front, so the first incoming call works
         }
         // No saved account: keep whatever auth step the user is already on.
     }
@@ -340,7 +348,7 @@ public final class AppStore: ObservableObject {
         authStep = .authenticated
         await startEventListener()
         await connectAndSyncAccount(acc)
-        Task { await self.prepareCalls() } // calls-platform id up front, so the first incoming call works
+        Task { await self.prepareCalls(); await self.loadFolders(); await self.loadStoryFeed() } // calls-platform id up front, so the first incoming call works
     }
 
     // MARK: - Sync & Event Loop
@@ -446,6 +454,10 @@ public final class AppStore: ObservableObject {
             await applyCallHistoryPush(resp.payload)
         case 243:
             applyPinnedState(resp.payload["pinnedMessagesState"])
+        case 277:
+            applyFolders(resp.payload)
+        case 293:
+            applyTranscription(resp.payload)
         case 130:
             if let cid = resp.payload["chatId"]?.int64Value,
                let idx = chats.firstIndex(where: { $0.id == cid }),
@@ -1207,7 +1219,7 @@ public final class AppStore: ObservableObject {
         )
     }
 
-    private func parseChat(_ v: JSONValue) -> MaxChat {
+    func parseChat(_ v: JSONValue) -> MaxChat {
         let id = v["id"]?.int64Value ?? 0
         let typeStr = v["type"]?.stringValue ?? "DIALOG"
         let type = ChatType(rawValue: typeStr) ?? .unknown
@@ -1317,7 +1329,9 @@ public final class AppStore: ObservableObject {
                     mime: a["mime"]?.stringValue,
                     size: a["size"]?.uint64Value,
                     token: a["token"]?.stringValue,
-                    wave: Self.decodeWave(a["wave"])
+                    wave: Self.decodeWave(a["wave"]),
+                    poll: a["_type"]?.stringValue == "POLL" ? MaxPoll.parse(a) : nil,
+                    keyboard: a["_type"]?.stringValue == "INLINE_KEYBOARD" ? BotKeyboard.parse(a) : nil
                 ))
             }
         }

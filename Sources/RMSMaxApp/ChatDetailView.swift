@@ -14,6 +14,8 @@ struct ChatDetailView: View {
     @State private var replyTarget: MaxMessage?
     @State private var editTarget: MaxMessage?
     @State private var forwardTarget: MaxMessage?
+    @State private var complaintTarget: MaxMessage?
+    @State private var showingStickers = false
     @State private var showingE2ESettings = false
     @State private var showingInfo = false
     @State private var callSecureByDefault = true
@@ -94,6 +96,7 @@ struct ChatDetailView: View {
                                     Task { await store.setPinned(chatId: chat.id, messageId: msg.id, pinned: liveChat.pinnedMessageId != msg.id) }
                                 },
                                 onForward: { forwardTarget = msg },
+                                onComplain: { complaintTarget = msg },
                                 onEdit: {
                                     editTarget = msg
                                     replyTarget = nil
@@ -166,6 +169,13 @@ struct ChatDetailView: View {
                 .background(Color.secondary.opacity(0.08))
             }
 
+            if messages.isEmpty && chat.type == .dialog && !store.loadingOlderHistory.contains(chat.id) {
+                Button("Начать (/start)") { Task { await store.startBot(chatId: chat.id) } }
+                    .buttonStyle(.bordered)
+                    .padding(.top, 6)
+                    .help("Для диалога с ботом: отправляет команду запуска")
+            }
+
             if recorder.isRecording {
                 VoiceRecordingBar(
                     recorder: recorder,
@@ -208,6 +218,13 @@ struct ChatDetailView: View {
         }
         .sheet(item: $forwardTarget) { msg in
             ForwardSheet(message: msg)
+        }
+        .sheet(item: $complaintTarget) { msg in
+            ComplaintSheet(
+                target: store.complaintTarget(forMessageIn: chat),
+                ids: Int64(msg.id).map { [$0] } ?? [],
+                parentId: chat.id
+            )
         }
         .sheet(isPresented: $showingE2ESettings) {
             ChatE2ESettingsSheet(chat: chat)
@@ -348,6 +365,20 @@ struct ChatDetailView: View {
                 ProgressView().controlSize(.small)
             }
 
+            Button { showingStickers.toggle() } label: {
+                Image(systemName: "face.smiling").font(.title3)
+            }
+            .buttonStyle(.plain)
+            .help(settings.isActive ? "Стикеры (отправляются без шифрования)" : "Стикеры")
+            .popover(isPresented: $showingStickers) {
+                StickerPicker { sticker in
+                    showingStickers = false
+                    let reply = replyTarget?.id
+                    replyTarget = nil
+                    Task { await store.sendSticker(sticker, chatId: chat.id, replyTo: reply) }
+                }
+            }
+
             TextField(
                 settings.isActive ? "Зашифрованное сообщение..." : "Сообщение...",
                 text: $draftText,
@@ -437,6 +468,7 @@ struct ChatDetailView: View {
 }
 
 private struct MessageBubbleView: View {
+    @EnvironmentObject private var store: AppStore
     let message: MaxMessage
     let isMe: Bool
     let senderName: String
@@ -447,6 +479,7 @@ private struct MessageBubbleView: View {
     var isPinned: Bool = false
     var onPin: () -> Void = {}
     var onForward: () -> Void = {}
+    var onComplain: () -> Void = {}
     var onEdit: () -> Void = {}
 
     private static let formatter: DateFormatter = {
@@ -466,7 +499,20 @@ private struct MessageBubbleView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                ForEach(message.attaches.filter { $0.poll != nil }) { att in
+                    PollView(chatId: message.chatId, messageId: message.id, poll: att.poll!)
+                }
+
                 MessageAttachmentsView(message: message)
+
+                if message.decrypted == nil, store.transcriptionEnabled,
+                   let voice = message.attaches.first(where: { $0.kind == .audio }), let mediaId = voice.videoId {
+                    TranscriptionView(chatId: message.chatId, messageId: message.id, mediaId: mediaId)
+                }
+
+                ForEach(message.attaches.filter { $0.keyboard != nil }) { att in
+                    BotKeyboardView(keyboard: att.keyboard!, chatId: message.chatId)
+                }
 
                 let body = message.bodyText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
                 if !body.isEmpty || (message.attaches.isEmpty && message.decrypted?.media == nil) {
@@ -522,6 +568,9 @@ private struct MessageBubbleView: View {
                     Button("Изменить", action: onEdit)
                 }
                 Divider()
+                if !isMe {
+                    Button("Пожаловаться…", action: onComplain)
+                }
                 Button("Удалить у себя", role: .destructive) { onDelete(false) }
                 if isMe {
                     Button("Удалить у всех", role: .destructive) { onDelete(true) }
