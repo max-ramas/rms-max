@@ -48,7 +48,6 @@ struct ChatInfoPanel: View {
         }
     }
 
-    private static let cap = 200
 
     private var chat: MaxChat? { store.chats.first { $0.id == chatId } }
     private var me: Int64? { store.currentAccount?.userId }
@@ -131,8 +130,7 @@ struct ChatInfoPanel: View {
             await store.loadPresence(Array(members.prefix(100).map(\.id)))
         }
         for kind in MediaKind.allCases {
-            let n = await store.chatMedia(chatId: chat.id, types: [kind.rawValue], count: Self.cap).count
-            counts[kind] = n
+            counts[kind] = await store.chatMediaPage(chatId: chat.id, types: [kind.rawValue], count: 1).total   // exact, from `total`
         }
     }
 
@@ -245,7 +243,7 @@ struct ChatInfoPanel: View {
                     Button { mediaSheet = kind } label: {
                         HStack(spacing: 14) {
                             Image(systemName: kind.icon).frame(width: 24).foregroundStyle(.secondary)
-                            Text(kind.title(n, capped: n >= Self.cap))
+                            Text(kind.title(n, capped: false))
                             Spacer()
                         }
                         .padding(.horizontal, 14).padding(.vertical, 10).contentShape(Rectangle())
@@ -357,6 +355,8 @@ struct ChatMediaListSheet: View {
     let kind: ChatInfoPanel.MediaKind
     @State private var items: [MaxMessage] = []
     @State private var loaded = false
+    @State private var total = 0
+    @State private var loadingMore = false
     private let columns = [GridItem(.adaptive(minimum: 100), spacing: 4)]
 
     var body: some View {
@@ -390,13 +390,27 @@ struct ChatMediaListSheet: View {
                     }
                 }
                 if loaded && items.isEmpty { Text("Ничего нет").foregroundStyle(.secondary).padding(40) }
+                if loaded && items.count < total {
+                    Button(loadingMore ? "Загрузка…" : "Загрузить ещё") { Task { await loadMore() } }
+                        .disabled(loadingMore).padding()
+                }
             }
-            .navigationTitle(kind.title(items.count, capped: false))
+            .navigationTitle(kind.title(max(total, items.count), capped: false))
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } } }
-            .task { items = await store.chatMedia(chatId: chatId, types: [kind.rawValue], count: 200); loaded = true }
+            .task { await loadMore(); loaded = true }
         }
         #if os(macOS)
         .frame(minWidth: 460, minHeight: 520)
         #endif
+    }
+
+    private func loadMore() async {
+        guard !loadingMore else { return }
+        loadingMore = true
+        let page = await store.chatMediaPage(chatId: chatId, types: [kind.rawValue], before: items.last.flatMap { Int64($0.id) }.map { $0 - 1 })
+        total = page.total
+        let known = Set(items.map(\.id))
+        items += page.messages.filter { !known.contains($0.id) }
+        loadingMore = false
     }
 }

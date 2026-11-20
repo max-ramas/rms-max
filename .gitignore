@@ -22,3 +22,6 @@ dist/
 xcuserdata/
 DerivedData/
 .DS_Store
+
+# Internal documentation (not for the public repository)
+/README-INT.md

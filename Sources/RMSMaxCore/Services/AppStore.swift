@@ -45,6 +45,8 @@ public final class AppStore: ObservableObject {
     @Published public var contacts: [Int64: MaxContact] = [:]
     /// Account privacy settings (`config.user`): SEARCH_BY_PHONE, INCOMING_CALL, CHATS_INVITE, PHONE_NUMBER_PRIVACY, HIDDEN, CONTENT_LEVEL_ACCESS.
     @Published public var userSettings: [String: JSONValue] = [:]
+    /// Set when the server rejected the chat-media request: it is not repeated until the next launch.
+    var chatMediaDisabled = false
     /// Animated emoji (Lottie): packs of the SYSTEM section and every animoji fetched so far.
     @Published public internal(set) var animojiSets: [AnimojiSet] = []
     @Published public internal(set) var animojiCache: [Int64: Animoji] = [:]

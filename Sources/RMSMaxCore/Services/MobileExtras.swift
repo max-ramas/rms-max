@@ -57,20 +57,30 @@ public extension AppStore {
         }
     }
 
-    /// op 51 `{chatId, messageId, attachTypes, forward, backward}` — media of a chat, newest first.
-    func chatMedia(chatId: Int64, types: [String] = ["PHOTO", "VIDEO"], before messageId: Int64? = nil, count: Int = 60) async -> [MaxMessage] {
-        let from = messageId ?? (chats.first { $0.id == chatId }?.lastMessage.flatMap { Int64($0.id) } ?? 0)
+    /// op 51 `{chatId, messageId?, attachTypes, forward, backward}` → `{messages, total, pos}`: media of a chat, newest first.
+    /// The official client asks for 25 at a time and reads the exact count from `total`; larger values make the server answer
+    /// «Ошибка валидации» and drop the connection (seen as a reconnect on every chat switch in 1.11.0), so the page is capped.
+    func chatMediaPage(chatId: Int64, types: [String], before messageId: Int64? = nil, count: Int = 25) async -> (messages: [MaxMessage], total: Int) {
+        guard !chatMediaDisabled else { return ([], 0) }
+        var payload: [String: JSONValue] = [
+            "chatId": .int(chatId), "attachTypes": .array(types.map { .string($0) }),
+            "forward": .int(0), "backward": .int(Int64(max(1, min(count, 25)))),
+        ]
+        if let from = messageId ?? chats.first(where: { $0.id == chatId })?.lastMessage.flatMap({ Int64($0.id) }) { payload["messageId"] = .int(from) }
         do {
-            let resp = try await client.sendAndWait(opcode: 51, payload: .object([
-                "chatId": .int(chatId), "messageId": .int(from), "attachTypes": .array(types.map { .string($0) }),
-                "forward": .int(0), "backward": .int(Int64(count)),
-            ]))
-            let list = resp.payload["messages"]?.arrayValue ?? []
-            return list.map { parseMessage($0, chatId: chatId) }.sorted { $0.timeMs > $1.timeMs }
+            let resp = try await client.sendAndWait(opcode: 51, payload: .object(payload))
+            let list = (resp.payload["messages"]?.arrayValue ?? []).map { parseMessage($0, chatId: chatId) }.sorted { $0.timeMs > $1.timeMs }
+            return (list, Int(resp.payload["total"]?.int64Value ?? Int64(list.count)))
         } catch {
             ProtocolLog.add("chat media op=51 failed: \(error.localizedDescription)")
-            return []
+            // A rejected payload also closes the connection: do not repeat it on every chat switch.
+            if error.localizedDescription.contains("валидации") { chatMediaDisabled = true; ProtocolLog.add("chat media switched off for this session") }
+            return ([], 0)
         }
+    }
+
+    func chatMedia(chatId: Int64, types: [String] = ["PHOTO", "VIDEO"], before messageId: Int64? = nil, count: Int = 25) async -> [MaxMessage] {
+        await chatMediaPage(chatId: chatId, types: types, before: messageId, count: count).messages
     }
 
     /// op 60 `{query, count, type: ALL}` -> `{result: [{chat} | {contact}]}` — channels, groups, bots, users by name.
