@@ -48,6 +48,15 @@ struct ContentView: View {
                     chatListSidebar
                         .safeAreaInset(edge: .top) {
                             VStack(spacing: 0) {
+                                SidebarActionBar(
+                                    newGroup: { showingNewGroupSheet = true },
+                                    contacts: { showingContacts = true },
+                                    calls: { showingCallHistory = true },
+                                    createConference: { showingCreateConference = true },
+                                    joinCall: { showingJoinCallSheet = true },
+                                    openLink: { showingJoinLink = true },
+                                    settings: { showingSettings = true }
+                                )
                                 PermissionsBanner()
                                 UpdateBanner()
                                 StoriesBar()
@@ -67,7 +76,7 @@ struct ContentView: View {
                         }
                         .navigationTitle("RMS MAKS")
                         #if os(macOS)
-                        // Wide enough for every toolbar button of the column; narrower, macOS folds the last ones into «»».
+                        // A comfortable width for the action bar and the chat list.
                         .navigationSplitViewColumnWidth(min: 400, ideal: 420, max: 560)
                         #endif
                         .searchable(text: $searchText, prompt: "Поиск чатов и сообщений")
@@ -75,47 +84,6 @@ struct ContentView: View {
                             try? await Task.sleep(nanoseconds: 500_000_000)
                             guard !Task.isCancelled else { return }
                             await store.searchMessages(searchText)
-                        }
-                        .toolbar {
-                            ToolbarItemGroup(placement: .primaryAction) {
-                                Button {
-                                    showingNewGroupSheet = true
-                                } label: {
-                                    Label("Новая группа", systemImage: "square.and.pencil")
-                                }
-                                .help("Новая группа")
-                                Button {
-                                    showingJoinLink = true
-                                } label: {
-                                    Label("Открыть ссылку", systemImage: "link")
-                                }
-                                .help("Открыть ссылку")
-                                Button {
-                                    showingCallHistory = true
-                                } label: {
-                                    Label("Звонки", systemImage: "phone.badge.clock")
-                                }
-                                .help("Звонки")
-                                Button {
-                                    showingContacts = true
-                                } label: {
-                                    Label("Контакты", systemImage: "person.crop.circle")
-                                }
-                                .help("Контакты")
-                                Menu {
-                                    Button("Создать конференцию…") { showingCreateConference = true }
-                                    Button("Присоединиться по ссылке…") { showingJoinCallSheet = true }
-                                } label: {
-                                    Label("Конференция", systemImage: "video.badge.plus")
-                                }
-                                .help("Создать конференцию или присоединиться по ссылке")
-                                Button {
-                                    showingSettings = true
-                                } label: {
-                                    Label("Настройки", systemImage: "gearshape")
-                                }
-                                .help("Настройки")
-                            }
                         }
                 } detail: {
                     if let chatId = store.selectedChatId,

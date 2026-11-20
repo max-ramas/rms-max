@@ -61,10 +61,11 @@ enum NWHTTPSClient {
         try await connect(conn, queue: queue)
 
         var head = "\(method) \(target) HTTP/1.1\r\nHost: \(url.port.map { "\(host):\($0)" } ?? host)\r\n"
+        // No "User-Agent" key = our default; an explicit empty value = send none at all.
         if !headers.keys.contains(where: { $0.lowercased() == "user-agent" }) { head += "User-Agent: RMS-MAKS\r\n" }
         head += "Accept: */*\r\nConnection: close\r\n"
         if method != "GET" { head += "Content-Length: \(body.count)\r\n" }
-        for (k, v) in headers { head += "\(k): \(v)\r\n" }
+        for (k, v) in headers where !(k.lowercased() == "user-agent" && v.isEmpty) { head += "\(k): \(v)\r\n" }
         head += "\r\n"
 
         return try await withThrowingTaskGroup(of: Response.self) { group in

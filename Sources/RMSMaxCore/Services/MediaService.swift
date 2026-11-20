@@ -89,37 +89,47 @@ enum MediaHTTP {
 
     private static let chromeUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
-    /// OK/VK video URLs are bound to the client that asked for them: `srcAg` (user-agent class) and `srcIp` (address).
-    /// A request from another agent or address is refused with HTTP 400, so the download pretends to be that agent and,
-    /// if it is still refused, retries over IPv4 (the API connection's address family).
+    /// Video links are signed for a client class: `srcAg` (we saw UNKNOWN for a desktop identity without a browser agent)
+    /// and the address family. The CDN answers `400 10` for any other agent, so the right one is searched once, in order
+    /// of likelihood (the official desktop plays with libavformat → «Lavf/…»), and the winner is remembered.
+    private static let agentCandidates: [(label: String, ua: String)] = [
+        ("lavf", "Lavf/61.7.100"),
+        ("none", ""),
+        ("max-desktop", "MAX/26.41.1"),
+        ("coremedia", "AppleCoreMedia/1.0.0.24F74 (Macintosh; U; Intel Mac OS X 15_5; ru_ru)"),
+        ("safari", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"),
+        ("chrome", chromeUA),
+        ("curl", "curl/8.7.1"),
+        ("rms", "RMS-MAKS"),
+    ]
+    private static let agentKey = "rmsmaks.video.agent"
+
     static func getVideo(_ url: URL) async throws -> Data {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let open: Set<String> = ["pr", "srcAg", "type", "ct", "clientType", "subId"]
         ProtocolLog.add("video url params: " + items.map { open.contains($0.name) ? "\($0.name)=\($0.value ?? "")" : $0.name }.joined(separator: ","))
-        let ag = items.first { $0.name == "srcAg" }?.value?.uppercased() ?? ""
-        let ua: String
-        switch ag {
-        case "SAFARI": ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
-        case "FIREFOX": ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
-        default: ua = chromeUA
+        var order = agentCandidates
+        if let saved = UserDefaults.standard.string(forKey: agentKey), let i = order.firstIndex(where: { $0.label == saved }) {
+            order.insert(order.remove(at: i), at: 0)
         }
-        var req = URLRequest(url: url)
-        req.setValue(ua, forHTTPHeaderField: "User-Agent")
-        var failure = "?"
-        do {
-            let (data, response) = try await session.data(for: req)
-            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            if (200...299).contains(code), looksLikeVideo(data) { return data }
-            failure = "HTTP \(code) \(String(decoding: data.prefix(80), as: UTF8.self))"
-        } catch {
-            failure = "\((error as NSError).code)"
+        var last = "?"
+        for ipv4 in [false, true] {
+            for (label, ua) in order {
+                do {
+                    let r = try await NWHTTPSClient.get(url: url, headers: ["User-Agent": ua], ipv4Only: ipv4)
+                    if (200...299).contains(r.status), looksLikeVideo(r.body) {
+                        ProtocolLog.add("video agent '\(label)'\(ipv4 ? " over IPv4" : "") accepted")
+                        UserDefaults.standard.set(label, forKey: agentKey)
+                        return r.body
+                    }
+                    last = "HTTP \(r.status) \(String(decoding: r.body.prefix(40), as: UTF8.self))"
+                } catch {
+                    last = error.localizedDescription
+                }
+            }
+            ProtocolLog.add("video: no agent accepted\(ipv4 ? " (IPv4)" : ""): \(last)")
         }
-        ProtocolLog.add("video download via URLSession refused (\(failure)); retrying over IPv4")
-        let r = try await NWHTTPSClient.get(url: url, headers: ["User-Agent": ua], ipv4Only: true)
-        guard (200...299).contains(r.status), looksLikeVideo(r.body) else {
-            throw MediaError.downloadFailed("HTTP \(r.status) \(String(decoding: r.body.prefix(80), as: UTF8.self))")
-        }
-        return r.body
+        throw MediaError.downloadFailed(last)
     }
 
     static let session: URLSession = {
