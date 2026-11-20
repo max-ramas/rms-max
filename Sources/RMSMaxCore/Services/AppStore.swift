@@ -376,8 +376,11 @@ public final class AppStore: ObservableObject {
                 _ = try await client.connect(identity: account.identity, useMobileTransport: account.useMobileTransport)
             }
             isConnected = true
+            // We keep no local copy of chats/contacts, so every login asks for the FULL state
+            // (sync markers -1). Incremental markers made the server return only changes → empty list.
             let savedSync = await store.loadSyncState(accountId: account.id)
-            let (loginResp, login2Resp, nextSync) = try await client.sync(state: savedSync)
+            let request = SyncState(configHash: savedSync.configHash)
+            let (loginResp, login2Resp, nextSync) = try await client.sync(state: request)
             self.syncState = nextSync
             try? await store.saveSyncState(nextSync, accountId: account.id)
 
@@ -409,7 +412,13 @@ public final class AppStore: ObservableObject {
                 parsed.append(chat)
                 await loadAndApplySettings(chatId: chat.id)
             }
-            chats = parsed.sorted { $0.lastEventTime > $1.lastEventTime }
+            if parsed.isEmpty && !chats.isEmpty {
+                ProtocolLog.add("login returned 0 chats; keeping \(chats.count) known chats")
+            } else {
+                // Keep chats we knew that the reply did not mention (e.g. a partial answer), newest first.
+                let ids = Set(parsed.map(\.id))
+                chats = (parsed + chats.filter { !ids.contains($0.id) }).sorted { $0.lastEventTime > $1.lastEventTime }
+            }
             reconnectAttempt = 0
             ProtocolLog.add("synced: \(chats.count) chats, \(contacts.count) contacts")
             Task { await self.ensureContacts(for: self.chats) }
