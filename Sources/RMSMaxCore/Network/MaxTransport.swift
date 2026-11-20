@@ -88,7 +88,8 @@ public enum MaxTrustEvaluator {
         return SecCertificateCreateWithData(nil, der as CFData)
     }()
 
-    static let maxDomains = ["oneme.ru", "max.ru", "okcdn.ru", "mycdn.me"]
+    // MAX media/upload hosts live on VK infrastructure too (the desktop identity is handed vkuser/userapi upload URLs).
+    static let maxDomains = ["oneme.ru", "max.ru", "okcdn.ru", "mycdn.me", "ok.ru", "vkuser.net", "userapi.com", "vk.com", "vk-cdn.net", "vkuseraudio.net", "vkuservideo.net"]
 
     static func isMaxHost(_ host: String) -> Bool {
         let h = host.lowercased()
@@ -123,6 +124,7 @@ public final class MaxURLSessionDelegate: NSObject, URLSessionDelegate, Sendable
                 completionHandler(.useCredential, URLCredential(trust: trust))
                 return
             }
+            ProtocolLog.add("TLS rejected for host \(challenge.protectionSpace.host)")
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }

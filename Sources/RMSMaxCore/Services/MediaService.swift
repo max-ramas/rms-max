@@ -134,7 +134,13 @@ extension MaxClient {
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         req.setValue("attachment; filename=\"\(fname)\"", forHTTPHeaderField: "Content-Disposition")
         req.setValue("bytes 0-\(max(0, data.count - 1))/\(data.count)", forHTTPHeaderField: "Content-Range")
-        let (respData, response) = try await MediaHTTP.session.upload(for: req, from: data)
+        let respData: Data, response: URLResponse
+        do {
+            (respData, response) = try await MediaHTTP.session.upload(for: req, from: data)
+        } catch {
+            ProtocolLog.add("media upload to \(url.host ?? "?") failed: \(error.localizedDescription)")
+            throw error
+        }
         try MediaHTTP.checkOK(response, respData)
         let text = String(data: respData, encoding: .utf8) ?? ""
         if text.contains("error_msg") || text.contains("error_code") {
