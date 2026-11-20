@@ -154,14 +154,36 @@ public actor MaxClient {
         self.transport = nil
         failPendingRequests(with: MaxTransportError.connectionClosed("Disconnected"))
         self.seq = 0
+        self.lastInSeq = -1
     }
 
+    private var lastInSeq: Int = -1
+
+    /// cmd 0 = server-initiated (push / server ping), cmd != 0 = answer to our request. Server pushes have their own
+    /// seq counter, so they must never be matched against our pending requests by seq alone.
     private func handleIncomingResponse(_ resp: MaxResponse) {
-        if let cont = pending.removeValue(forKey: resp.seq) {
-            cont.resume(returning: resp)
-        } else {
-            eventContinuation?.yield(.push(resp))
+        guard resp.cmd == 0 else {
+            if let cont = pending.removeValue(forKey: resp.seq) { cont.resume(returning: resp) }
+            return
         }
+        // As the official client: answer the server ping, acknowledge every new-message push
+        // (otherwise MAX stops delivering messages to this session), drop duplicates.
+        if Int(resp.seq) <= lastInSeq && resp.seq != 0 && lastInSeq - Int(resp.seq) < 30000 { return }
+        lastInSeq = Int(resp.seq)
+        if resp.opcode == 1 {
+            sendServerAck(resp, payload: .null)
+            return
+        }
+        if resp.opcode == 128, let chatId = resp.payload["chatId"], let mid = resp.payload["message"]?["id"] {
+            sendServerAck(resp, payload: .object(["chatId": chatId, "messageId": mid]))
+        }
+        eventContinuation?.yield(.push(resp))
+    }
+
+    private func sendServerAck(_ push: MaxResponse, payload: JSONValue) {
+        guard let transport else { return }
+        let ack = MaxRequest(ver: 10, cmd: 1, seq: push.seq, opcode: push.opcode, payload: payload)
+        Task { try? await transport.send(ack) }
     }
 
     private func handleTransportClosed(reason: String?) {
