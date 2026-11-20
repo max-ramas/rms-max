@@ -47,11 +47,15 @@ public extension AppStore {
         presence[id] = p
     }
 
-    /// op 35 `{contactIds}` -> `{presence:{id:{status,seen}}}`.
+    /// Mobile protocol has no presence query (op 35 is web-only): presence comes with login and push 132,
+    /// and with contacts (op 32 `presence`). Refreshes the contacts to pick it up.
     func loadPresence(_ ids: [Int64]) async {
         guard !ids.isEmpty else { return }
-        if let resp = try? await client.sendAndWait(opcode: 35, payload: .object(["contactIds": .array(ids.map { .int($0) })])) {
+        if let resp = try? await client.getContacts(Array(ids.prefix(100))) {
             applyPresenceMap(resp.payload["presence"])
+            for raw in resp.payload["contacts"]?.arrayValue ?? [] {
+                if let id = raw["id"]?.int64Value, let p = ContactPresence(raw["presence"]) { presence[id] = p }
+            }
         }
     }
 

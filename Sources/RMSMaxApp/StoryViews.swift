@@ -51,7 +51,10 @@ struct StoryViewer: View {
             if loading {
                 ProgressView().tint(.white)
             } else if stories.isEmpty {
-                Text("Истории недоступны").foregroundStyle(.white)
+                VStack(spacing: 8) {
+                    Text("Историю не удалось загрузить").foregroundStyle(.white)
+                    Text("Возможно, она уже истекла или скрыта автором.").font(.caption).foregroundStyle(.white.opacity(0.6))
+                }
             } else {
                 let story = stories[index]
                 VStack(spacing: 10) {
@@ -60,7 +63,6 @@ struct StoryViewer: View {
                         Text(Date(timeIntervalSince1970: Double(story.time) / 1000).formatted(date: .omitted, time: .shortened))
                             .foregroundStyle(.white.opacity(0.7))
                         Spacer()
-                        Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal)
@@ -102,6 +104,22 @@ struct StoryViewer: View {
                     .padding()
                 }
             }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill").font(.title2).foregroundStyle(.white.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .help("Закрыть (Esc)")
+            .padding(10)
+        }
+        .background {
+            Group {
+                Button("") { if index > 0 { index -= 1 } }.keyboardShortcut(.leftArrow, modifiers: [])
+                Button("") { next() }.keyboardShortcut(.rightArrow, modifiers: [])
+            }
+            .opacity(0)
         }
         .frame(minWidth: 360, minHeight: 600)
         .task {

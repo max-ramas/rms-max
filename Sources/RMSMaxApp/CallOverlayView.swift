@@ -159,9 +159,11 @@ struct CallOverlayView: View {
                     .foregroundStyle(.white.opacity(0.6))
                     .padding(.horizontal, 32)
             }
-            if let link = call.inviteLink, call.phase != .ended {
-                Button { copyToClipboard(link) } label: {
-                    Label("Скопировать ссылку", systemImage: "doc.on.doc").font(.caption)
+            if call.phase != .ended {
+                Button {
+                    Task { if let link = await store.fetchCallInviteLink() { copyToClipboard(link) } }
+                } label: {
+                    Label(call.inviteLink == nil ? "Пригласить по ссылке" : "Скопировать ссылку", systemImage: "link").font(.caption)
                 }
                 .buttonStyle(.bordered)
                 .tint(.white)

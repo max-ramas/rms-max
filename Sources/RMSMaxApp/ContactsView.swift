@@ -223,8 +223,6 @@ struct RenameContactSheet: View {
                 }
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 360, minHeight: 200)
-        #endif
+        .macSheet(width: 400, height: 240)
     }
 }

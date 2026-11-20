@@ -181,6 +181,9 @@ public actor MaxClient {
         guard let transport else {
             throw MaxTransportError.notConnected
         }
+        if UnsupportedOpcodes.contains(opcode) {
+            throw MaxTransportError.unsupportedOpcode(opcode)
+        }
         seq &+= 1
         if seq == 0 { seq = 1 }
         let currentSeq = seq
@@ -203,6 +206,10 @@ public actor MaxClient {
 
         if let errVal = resp.payload["error"], errVal != .null {
             ProtocolLog.add("op=\(opcode) error=\(errVal.stringValue ?? "?") msg=\(resp.payload["localizedMessage"]?.stringValue ?? resp.payload["message"]?.stringValue ?? "")")
+            if errVal.stringValue == "proto.opcode" {
+                UnsupportedOpcodes.insert(opcode)
+                throw MaxTransportError.unsupportedOpcode(opcode)
+            }
             throw MaxTransportError.apiError(resp.payload)
         }
         return resp

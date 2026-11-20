@@ -198,7 +198,11 @@ struct ControlEventText: View {
         case "icon": return "\(actor) изменил(а) фото чата"
         case "pin": return "\(actor) закрепил(а) сообщение"
         case "botStarted": return "\(actor) запустил(а) бота"
-        default: return "Служебное сообщение"
+        case "hello": return "\(name(message.senderId)) теперь в MAX — поздоровайтесь 👋"
+        case "privacyWarning": return "\(actor) " + (event.kind == "screencast" ? "записывает экран" : "сделал(а) снимок экрана")
+        case "sendContact": return "\(actor) предлагает обменяться контактами"
+        case "system": return event.message ?? "Системное сообщение"
+        default: return event.summary
         }
     }
 }

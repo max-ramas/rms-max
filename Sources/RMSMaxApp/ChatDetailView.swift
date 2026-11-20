@@ -365,6 +365,14 @@ struct ChatDetailView: View {
                 ProgressView().controlSize(.small)
             }
 
+            if store.isBotDialog(liveChat) {
+                BotCommandsButton(chatId: chat.id) { cmd in
+                    Task { await store.sendTextMessage(chatId: chat.id, plaintext: cmd) }
+                }
+                .buttonStyle(.plain)
+                .font(.title3)
+            }
+
             Button { showingStickers.toggle() } label: {
                 Image(systemName: "face.smiling").font(.title3)
             }
@@ -481,6 +489,7 @@ private struct MessageBubbleView: View {
     var onForward: () -> Void = {}
     var onComplain: () -> Void = {}
     var onEdit: () -> Void = {}
+    @State private var showingReactions = false
 
     private static let formatter: DateFormatter = {
         let f = DateFormatter()
@@ -528,7 +537,7 @@ private struct MessageBubbleView: View {
                 }
 
                 ForEach(message.attaches.filter { $0.keyboard != nil }) { att in
-                    BotKeyboardView(keyboard: att.keyboard!, chatId: message.chatId)
+                    BotKeyboardView(keyboard: att.keyboard!, chatId: message.chatId, messageId: message.id)
                 }
 
                 let body = message.bodyText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
@@ -583,6 +592,9 @@ private struct MessageBubbleView: View {
                 Button("❤️") { onReact("❤️") }
                 Button("🔥") { onReact("🔥") }
                 Button("Копировать") { copyText(message.bodyText) }
+                if !message.reactions.isEmpty {
+                    Button("Кто отреагировал…") { showingReactions = true }
+                }
                 Button("Переслать…", action: onForward)
                 Button(isPinned ? "Открепить" : "Закрепить", action: onPin)
                 if isMe && message.attaches.isEmpty && message.decrypted?.media == nil {
@@ -600,6 +612,7 @@ private struct MessageBubbleView: View {
 
             if !isMe { Spacer(minLength: 60) }
         }
+        .sheet(isPresented: $showingReactions) { ReactionsDetailSheet(chatId: message.chatId, messageId: message.id) }
     }
 }
 
@@ -699,7 +712,7 @@ private struct ChatE2ESettingsSheet: View {
                 }
 
                 Section("Дополнительный пароль чата (Argon2id + ChaCha20)") {
-                    SecureField("Общий секрет чата (необязательно)", text: $passwordInput)
+                    SecureField("Пароль", text: $passwordInput, prompt: Text("Общий секрет (необязательно)"))
                     Button("Сохранить пароль") {
                         Task { await store.updateChatPassword(chatId: chat.id, password: passwordInput) }
                     }
@@ -715,5 +728,6 @@ private struct ChatE2ESettingsSheet: View {
                 passwordInput = settings.password ?? ""
             }
         }
+        .macSheet(width: 500, height: 440)
     }
 }

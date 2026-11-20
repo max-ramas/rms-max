@@ -54,18 +54,21 @@ public extension AppStore {
 
     // MARK: - Contacts (op 41 add by phone, op 34 actions, op 36 blacklist)
 
+    /// Mobile protocol (as rumax): op 46 finds the user by phone, op 34 `ADD` saves them with my name for them.
     @discardableResult
     func addContact(phone: String, firstName: String, lastName: String) async -> MaxContact? {
-        var payload: [String: JSONValue] = ["phone": .string(phone)]
-        if !firstName.isEmpty { payload["firstName"] = .string(firstName) }
+        guard let found = await findUser(phone: phone) else {
+            errorBanner = "Пользователь с номером \(phone) не найден в MAX"
+            return nil
+        }
+        var payload: [String: JSONValue] = [
+            "contactId": .int(found.id), "action": .string("ADD"),
+            "firstName": .string(firstName.isEmpty ? found.firstName : firstName),
+        ]
         if !lastName.isEmpty { payload["lastName"] = .string(lastName) }
         do {
-            let resp = try await client.sendAndWait(opcode: 41, payload: .object(payload))
-            guard let raw = resp.payload["contact"] else {
-                errorBanner = "Пользователь с таким номером не найден"
-                return nil
-            }
-            var c = parseContactValue(raw)
+            let resp = try await client.sendAndWait(opcode: 34, payload: .object(payload))
+            var c = resp.payload["contact"].map(parseContactValue) ?? found
             c.isInContacts = true
             contacts[c.id] = c
             return c
@@ -139,8 +142,6 @@ public extension AppStore {
         return (resp?.payload["members"]?.arrayValue ?? []).compactMap { $0["contact"].map(parseContactValue) }
     }
 
-    /// Group admin permission bits for a chat: members, admins, info, pin, calls, link, delete.
-    static let defaultAdminPermissions: Int64 = 2 | 4 | 8 | 16 | 64 | 128 | 1024
 
     /// op 77. `type`: nil (members) | "ADMIN" | "JOIN_REQUEST" | "BLOCKED_MEMBER"; `operation`: add | remove.
     func changeMembers(chatId: Int64, userIds: [Int64], operation: String, type: String? = nil, showHistory: Bool? = nil) async {
@@ -151,7 +152,10 @@ public extension AppStore {
         ]
         if let type { payload["type"] = .string(type) }
         if let showHistory { payload["showHistory"] = .bool(showHistory) }
-        if type == "ADMIN" && operation == "add" { payload["permissions"] = .int(Self.defaultAdminPermissions) }
+        if type == "ADMIN" {
+            await setAdmin(chatId: chatId, userId: userIds.first ?? 0, permissions: operation == "add" ? Self.adminPermissions : nil)
+            return
+        }
         do {
             let resp = try await client.sendAndWait(opcode: 77, payload: .object(payload))
             if let raw = resp.payload["chat"] { await applyChatUpdate(raw) }
@@ -191,24 +195,62 @@ public extension AppStore {
         }
     }
 
-    /// Invite links (op 221 list, 222 create, 223 delete).
-    func inviteLinks(chatId: Int64) async -> [(id: Int64, url: String, title: String?)] {
-        let resp = try? await client.sendAndWait(opcode: 221, payload: .object(["chatId": .object(["type": .int(1), "primaryId": .int(chatId)])]))
-        return (resp?.payload["links"]?.arrayValue ?? []).compactMap { l in
-            guard let url = l["link"]?.stringValue ?? l["url"]?.stringValue else { return nil }
-            return (l["id"]?.int64Value ?? 0, url, l["title"]?.stringValue)
+    /// Mobile protocol: a chat has one private link (`chat.link`); op 55 `{chatId, revokePrivateLink: true}`
+    /// issues a new one and invalidates the old (web-only ops 221-223 are unknown to the mobile server).
+    func resetInviteLink(chatId: Int64) async {
+        await updateChat(chatId: chatId, fields: ["revokePrivateLink": .bool(true)])
+    }
+
+    /// Group options via op 55 `options`; both spellings, as the official mobile client sends them.
+    func setChatOption(chatId: Int64, key: String, value: Bool) async {
+        let camel: [String: String] = [
+            "ALL_CAN_PIN_MESSAGE": "allCanPinMessage", "ONLY_OWNER_CAN_CHANGE_ICON_TITLE": "onlyOwnerCanChangeIconTitle",
+            "ONLY_ADMIN_CAN_ADD_MEMBER": "onlyAdminCanAddMember", "ONLY_ADMIN_CAN_CALL": "onlyAdminCanCall",
+            "MEMBERS_CAN_SEE_PRIVATE_LINK": "membersCanSeePrivateLink",
+        ]
+        var opts: [String: JSONValue] = [key: .bool(value)]
+        if let c = camel[key] { opts[c] = .bool(value) }
+        await updateChat(chatId: chatId, fields: ["options": .object(opts)])
+    }
+
+    /// Admin rights strings of the mobile protocol.
+    static let adminPermissions = ["CHANGE_CHAT_INFO", "DELETE_OTHERS_MESSAGES", "PIN_MESSAGE", "ADD_REMOVE_MEMBERS", "ADD_ADMINS", "CALL"]
+
+    /// op 55 `adminParticipants: {userId: {permissions:[...]}}`; `null` revokes.
+    func setAdmin(chatId: Int64, userId: Int64, permissions: [String]?) async {
+        let entry: JSONValue = permissions.map { .object(["permissions": .array($0.map { .string($0) })]) } ?? .null
+        await updateChat(chatId: chatId, fields: ["adminParticipants": .object([String(userId): entry])])
+    }
+}
+
+public extension AppStore {
+    /// op 64 with a CONTROL `new` attach (as the official client): creates a group (`CHAT`) or channel (`CHANNEL`),
+    /// adds it to the list and opens it.
+    @discardableResult
+    func createChat(title: String, userIds: [Int64], channel: Bool = false) async -> Int64? {
+        do {
+            let resp = try await client.sendAndWait(opcode: 64, payload: .object([
+                "message": .object([
+                    "cid": .int(Int64(Date().timeIntervalSince1970 * 1000)),
+                    "attaches": .array([.object([
+                        "_type": .string("CONTROL"), "event": .string("new"),
+                        "chatType": .string(channel ? "CHANNEL" : "CHAT"), "title": .string(title),
+                        "userIds": .array(userIds.map { .int($0) }),
+                    ])]),
+                ]),
+                "notify": .bool(true),
+            ]))
+            guard let raw = resp.payload["chat"] else {
+                errorBanner = "Сервер не вернул созданный чат"
+                return nil
+            }
+            await applyChatUpdate(raw)
+            let id = raw["id"]?.int64Value
+            selectedChatId = id
+            return id
+        } catch {
+            errorBanner = "Не удалось создать: \(error.localizedDescription)"
+            return nil
         }
-    }
-
-    func createInviteLink(chatId: Int64, title: String) async {
-        _ = try? await client.sendAndWait(opcode: 222, payload: .object([
-            "chatId": .object(["type": .int(1), "primaryId": .int(chatId)]), "title": .string(title),
-        ]))
-    }
-
-    func deleteInviteLink(chatId: Int64, linkId: Int64) async {
-        _ = try? await client.sendAndWait(opcode: 223, payload: .object([
-            "chatId": .object(["type": .int(1), "primaryId": .int(chatId)]), "linkIds": .array([.int(linkId)]),
-        ]))
     }
 }

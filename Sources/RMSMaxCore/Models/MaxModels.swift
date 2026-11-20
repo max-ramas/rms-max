@@ -404,6 +404,29 @@ public struct ControlEvent: Codable, Sendable, Equatable {
     public var event: String
     public var userIds: [Int64]
     public var title: String?
+    /// `system`: server-provided text; `privacyWarning`: screenshot | screencast.
+    public var message: String? = nil
+    public var kind: String? = nil
+
+    /// Short text for chat-list previews (no names).
+    public var summary: String {
+        switch event {
+        case "new": return "Чат создан"
+        case "add": return "Новые участники"
+        case "remove": return "Участник исключён"
+        case "leave": return "Участник вышел"
+        case "joinByLink": return "Вступление по ссылке"
+        case "title": return title.map { "Новое название: \($0)" } ?? "Изменено название"
+        case "icon": return "Изменено фото чата"
+        case "pin": return "Закреплено сообщение"
+        case "botStarted": return "Бот запущен"
+        case "system": return message ?? "Системное сообщение"
+        case "hello": return "Теперь в MAX"
+        case "privacyWarning": return kind == "screencast" ? "Идёт запись экрана" : "Сделан снимок экрана"
+        case "sendContact": return "Предложение обменяться контактами"
+        default: return "Служебное сообщение"
+        }
+    }
 }
 
 public struct BotKeyboard: Codable, Sendable, Equatable {
@@ -586,7 +609,7 @@ public struct MaxMessage: Codable, Sendable, Equatable, Identifiable {
             return share.title ?? share.url
         }
         if let first = attaches.first(where: { $0.keyboard == nil }) {
-            if first.control != nil { return "Служебное сообщение" }
+            if let c = first.control { return c.summary }
             if first.contactId != nil { return "Контакт" }
             if first.latitude != nil { return "Геопозиция" }
             if first.poll != nil { return "Опрос" }
@@ -617,6 +640,8 @@ public struct MaxContact: Codable, Sendable, Equatable, Identifiable {
     public var link: String? = nil
     public var registrationTime: Int64? = nil
     public var gender: String? = nil
+    /// The user's own profile name when I renamed them (names[type=ONEME] differs from CUSTOM).
+    public var profileName: String? = nil
 }
 
 /// A group call running in a chat (`chat.videoConversation`).

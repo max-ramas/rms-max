@@ -63,6 +63,9 @@ struct UserProfileView: View {
     let userId: Int64
     /// Hides «Написать» when shown from inside that very dialog.
     var showsMessageButton = true
+    /// When shown as the info of a dialog: media of that dialog and clear/delete actions.
+    var chat: MaxChat? = nil
+    @State private var showingPhotos = false
     @State private var renameTarget: MaxContact?
     @State private var complaint = false
 
@@ -73,6 +76,8 @@ struct UserProfileView: View {
             Section {
                 VStack(spacing: 8) {
                     AvatarView(url: contact?.avatarURL, title: contact?.name ?? "", size: 96)
+                        .onTapGesture { if contact?.avatarURL != nil { showingPhotos = true } }
+                        .help("Фото профиля")
                     Text(contact?.name ?? "Пользователь").font(.title2.bold())
                     if contact?.isBot == true {
                         Text("бот").font(.subheadline).foregroundStyle(.secondary)
@@ -85,6 +90,9 @@ struct UserProfileView: View {
             }
 
             Section("Информация") {
+                if let own = contact?.profileName {
+                    LabeledContent("Имя в профиле", value: own)
+                }
                 if let phone = contact?.phone, !phone.isEmpty {
                     LabeledContent("Телефон") {
                         Text(phone.hasPrefix("+") ? phone : "+" + phone).textSelection(.enabled)
@@ -126,7 +134,15 @@ struct UserProfileView: View {
                 } else {
                     Button("Заблокировать", role: .destructive) { Task { await store.contactAction(userId, action: "BLOCK") } }
                 }
+                if contact?.isBot == true {
+                    Button("Остановить бота", role: .destructive) { Task { await store.suspendBot(botId: userId, stop: true) } }
+                }
                 Button("Пожаловаться…", role: .destructive) { complaint = true }
+            }
+
+            if let chat {
+                ChatMediaSection(chatId: chat.id)
+                ChatDangerSection(chat: chat)
             }
         }
         .formStyle(.grouped)
@@ -136,6 +152,7 @@ struct UserProfileView: View {
             await store.loadPresence([userId])
         }
         .sheet(item: $renameTarget) { RenameContactSheet(contact: $0) }
+        .sheet(isPresented: $showingPhotos) { ProfilePhotosSheet(userId: userId) }
         .sheet(isPresented: $complaint) { ComplaintSheet(target: .userProfile, ids: [userId], parentId: nil) }
     }
 }

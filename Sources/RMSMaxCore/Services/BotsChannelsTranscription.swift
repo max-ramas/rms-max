@@ -12,7 +12,7 @@ public extension AppStore {
     }
 
     /// Official handling per button type; CALLBACK/CHAT go to the bot via op 118.
-    func pressBotButton(_ button: BotKeyboard.Button, keyboard: BotKeyboard, chatId: Int64) async -> BotAction {
+    func pressBotButton(_ button: BotKeyboard.Button, keyboard: BotKeyboard, chatId: Int64, messageId: String? = nil) async -> BotAction {
         switch button.type {
         case "LINK":
             return button.url.flatMap(URL.init(string:)).map(BotAction.openURL) ?? .done
@@ -23,11 +23,14 @@ public extension AppStore {
             return .done
         case "CALLBACK", "CHAT":
             var payload: [String: JSONValue] = [
+                // Mobile protocol (rumax): {chatId, messageId, callbackId, payload}.
+                "chatId": .int(chatId),
                 "callbackId": .string(keyboard.callbackId),
                 "type": .string(button.type),
                 "timestamp": .int(Int64(Date().timeIntervalSince1970 * 1000)),
             ]
             if let p = button.payload { payload["payload"] = .string(p) }
+            if let mid = messageId.flatMap(Int64.init) { payload["messageId"] = .int(mid) }
             do {
                 let resp = try await client.sendAndWait(opcode: 118, payload: .object(payload))
                 if let chat = resp.payload["chat"] { await applyChatUpdate(chat) }

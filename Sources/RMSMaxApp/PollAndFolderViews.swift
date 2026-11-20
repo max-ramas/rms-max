@@ -8,6 +8,9 @@ struct PollView: View {
     let messageId: String
     let poll: MaxPoll
     @State private var selection: Set<Int> = []
+    @State private var votersFor: VotersTarget?
+
+    struct VotersTarget: Identifiable { let id: Int; let text: String }
 
     private var showResults: Bool { poll.hasVoted || poll.isClosed }
 
@@ -15,6 +18,9 @@ struct PollView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label(poll.title, systemImage: poll.isQuiz ? "questionmark.circle" : "chart.bar")
                 .font(.subheadline.bold())
+                .sheet(item: $votersFor) { t in
+                    PollVotersSheet(chatId: chatId, messageId: messageId, pollId: poll.pollId, answer: (Int64(t.id), t.text))
+                }
             Text([poll.isAnonymous ? "Анонимный" : "Открытый", poll.isMultiple ? "несколько ответов" : nil, poll.isClosed ? "завершён" : nil]
                 .compactMap { $0 }.joined(separator: " · "))
                 .font(.caption2).foregroundStyle(.secondary)
@@ -35,6 +41,9 @@ struct PollView: View {
                         }
                         .frame(height: 5)
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture { votersFor = VotersTarget(id: a.id, text: a.text) }
+                    .help("Кто голосовал")
                 } else {
                     Button {
                         if poll.isMultiple {

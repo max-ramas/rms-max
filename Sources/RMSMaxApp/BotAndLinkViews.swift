@@ -12,6 +12,7 @@ struct BotKeyboardView: View {
     @Environment(\.openURL) private var openURL
     let keyboard: BotKeyboard
     let chatId: Int64
+    var messageId: String? = nil
 
     var body: some View {
         VStack(spacing: 4) {
@@ -20,7 +21,7 @@ struct BotKeyboardView: View {
                     ForEach(row) { b in
                         Button {
                             Task {
-                                switch await store.pressBotButton(b, keyboard: keyboard, chatId: chatId) {
+                                switch await store.pressBotButton(b, keyboard: keyboard, chatId: chatId, messageId: messageId) {
                                 case .openURL(let url): openURL(url)
                                 case .copy(let text): copy(text)
                                 case .unsupported(let why): store.errorBanner = why
@@ -78,6 +79,7 @@ struct TranscriptionView: View {
 struct JoinByLinkSheet: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
+    var initialLink: String = ""
     @State private var link = ""
     @State private var preview: AppStore.LinkPreview?
     @State private var checking = false
@@ -86,7 +88,7 @@ struct JoinByLinkSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Ссылка (max.ru/…)", text: $link)
+                TextField("Ссылка", text: $link, prompt: Text("https://max.ru/…"))
                     .onSubmit(check)
                 Button("Проверить", action: check).disabled(link.isEmpty || checking)
                 if notFound { Text("По ссылке ничего не найдено").foregroundStyle(.secondary) }
@@ -100,9 +102,8 @@ struct JoinByLinkSheet: View {
                             Button(p.isChannel ? "Подписаться" : "Вступить") {
                                 Task { await store.joinByLink(link); dismiss() }
                             }
-                        } else if let uid = p.userId,
-                                  let chat = store.chats.first(where: { store.dialogPeerId(for: $0) == uid }) {
-                            Button("Открыть чат") { store.selectedChatId = chat.id; dismiss() }
+                        } else if let uid = p.userId {
+                            Button("Написать") { store.openDialog(with: uid); dismiss() }
                         }
                     }
                 }
@@ -110,10 +111,11 @@ struct JoinByLinkSheet: View {
             .formStyle(.grouped)
             .navigationTitle("Открыть ссылку")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Готово") { dismiss() } } }
+            .onAppear {
+                if !initialLink.isEmpty && link.isEmpty { link = initialLink; check() }
+            }
         }
-        #if os(macOS)
-        .frame(minWidth: 400, minHeight: 320)
-        #endif
+        .macSheet(width: 460, height: 340)
     }
 
     private func check() {

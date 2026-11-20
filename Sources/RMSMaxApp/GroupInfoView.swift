@@ -23,10 +23,8 @@ struct GroupInfoView: View {
 
     @State private var members: [GroupMember] = []
     @State private var joinRequests: [MaxContact] = []
-    @State private var links: [(id: Int64, url: String, title: String?)] = []
     @State private var titleDraft = ""
     @State private var descDraft = ""
-    @State private var newLinkTitle = ""
     @State private var showingAddMembers = false
     @State private var showingPhotoImporter = false
     @State private var showingLeaveConfirm = false
@@ -44,6 +42,8 @@ struct GroupInfoView: View {
         ("ONLY_ADMIN_CAN_ADD_MEMBER", "Добавлять участников могут только админы"),
         ("ONLY_ADMIN_CAN_CALL", "Звонить могут только админы"),
         ("ALL_CAN_PIN_MESSAGE", "Закреплять могут все"),
+        ("ONLY_OWNER_CAN_CHANGE_ICON_TITLE", "Название и фото меняет только владелец"),
+        ("MEMBERS_CAN_SEE_PRIVATE_LINK", "Участники видят ссылку-приглашение"),
     ]
 
     private var chat: MaxChat? { store.chats.first { $0.id == chatId } }
@@ -107,7 +107,6 @@ struct GroupInfoView: View {
         members = await store.loadMembers(chatId: chatId)
         if isAdmin {
             joinRequests = await store.loadJoinRequests(chatId: chatId)
-            links = await store.inviteLinks(chatId: chatId)
         }
     }
 
@@ -116,7 +115,7 @@ struct GroupInfoView: View {
     @ViewBuilder
     private func dialogForm(_ chat: MaxChat) -> some View {
         if let peerId = store.dialogPeerId(for: chat) {
-            UserProfileView(userId: peerId, showsMessageButton: false)
+            UserProfileView(userId: peerId, showsMessageButton: false, chat: chat)
         } else {
             ContentUnavailableView("Нет данных о собеседнике", systemImage: "person.crop.circle.badge.questionmark")
         }
@@ -228,46 +227,28 @@ struct GroupInfoView: View {
                     }
                 }
 
-                Section("Ссылки-приглашения") {
-                    ForEach(links, id: \.id) { l in
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let t = l.title, !t.isEmpty {
-                                Text(t).font(.headline)
+                Section {
+                    if let link = chat.link, !link.isEmpty {
+                        Text(link).textSelection(.enabled).lineLimit(1)
+                        HStack {
+                            Button("Копировать") { copyToPasteboard(link) }.buttonStyle(.borderless)
+                            Spacer()
+                            Button("Сбросить ссылку", role: .destructive) {
+                                let id = chatId
+                                Task { await store.resetInviteLink(chatId: id) }
                             }
-                            Text(l.url)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .textSelection(.enabled)
-                            HStack {
-                                Button("Копировать") { copyToPasteboard(l.url) }
-                                    .buttonStyle(.borderless)
-                                Spacer()
-                                Button("Удалить", role: .destructive) {
-                                    let linkId = l.id
-                                    let id = chatId
-                                    Task {
-                                        await store.deleteInviteLink(chatId: id, linkId: linkId)
-                                        await reload()
-                                    }
-                                }
-                                .buttonStyle(.borderless)
-                            }
+                            .buttonStyle(.borderless)
                         }
-                    }
-                    HStack {
-                        TextField("Название новой ссылки", text: $newLinkTitle)
-                        Button("Создать") {
-                            let title = newLinkTitle.trimmedForm
+                    } else {
+                        Button("Создать ссылку") {
                             let id = chatId
-                            newLinkTitle = ""
-                            Task {
-                                await store.createInviteLink(chatId: id, title: title)
-                                await reload()
-                            }
+                            Task { await store.resetInviteLink(chatId: id) }
                         }
-                        .disabled(newLinkTitle.trimmedForm.isEmpty)
                     }
+                } header: {
+                    Text("Ссылка-приглашение")
+                } footer: {
+                    Text("После сброса старая ссылка перестаёт работать.")
                 }
 
                 Section("Настройки группы") {
@@ -276,15 +257,16 @@ struct GroupInfoView: View {
                             get: { chat.options[opt.key] ?? false },
                             set: { value in
                                 let id = chatId
-                                Task {
-                                    await store.updateChat(chatId: id, fields: ["options": .object([opt.key: .bool(value)])])
-                                }
+                                Task { await store.setChatOption(chatId: id, key: opt.key, value: value) }
                             }
                         ))
                     }
                 }
                 .disabled(!isAdmin)
             }
+
+            ChatMediaSection(chatId: chat.id)
+            ChatDangerSection(chat: chat)
 
             Section {
                 Button("Пожаловаться на группу…", role: .destructive) {

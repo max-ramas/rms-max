@@ -39,13 +39,16 @@ public extension AppStore {
     }
 
     func stories(of owner: StoryOwner) async -> [Story] {
-        // op 219 lists one owner's stories (the official profile/story viewer); 210 is the fallback.
+        // Mobile protocol: op 210 {owners:[{type, ownerId}]} -> {peerStories:[{owner, stories:[...]}], storiesPreviews}.
+        // (op 219 is web-only: the mobile server answers proto.opcode and drops the connection.)
         var raw: [JSONValue] = []
-        if let resp = try? await client.sendAndWait(opcode: 219, payload: .object(["owner": owner.json, "count": .int(30)])) {
-            raw = resp.payload["stories"]?.arrayValue ?? []
-        }
-        if raw.isEmpty, let resp = try? await client.sendAndWait(opcode: 210, payload: .object(["owners": .array([owner.json])])) {
-            raw = (resp.payload["peerStories"]?.arrayValue ?? []).first?["stories"]?.arrayValue ?? []
+        do {
+            let resp = try await client.sendAndWait(opcode: 210, payload: .object(["owners": .array([owner.json])]))
+            let peers = resp.payload["peerStories"]?.arrayValue ?? []
+            let mine = peers.first { Self.storyOwner($0["owner"]) == owner } ?? peers.first
+            raw = mine?["stories"]?.arrayValue ?? []
+        } catch {
+            ProtocolLog.add("stories op=210 failed: \(error.localizedDescription)")
         }
         if raw.isEmpty { ProtocolLog.add("stories: none returned for owner type=\(owner.type)") }
         return raw.compactMap { s in
@@ -55,7 +58,7 @@ public extension AppStore {
             return Story(
                 id: id, owner: owner, time: s["time"]?.int64Value ?? 0,
                 imageURL: media?["baseUrl"]?.stringValue ?? media?["url"]?.stringValue ?? media?["previewUrl"]?.stringValue
-                    ?? media?["thumbnail"]?.stringValue,
+                    ?? media?["thumbnail"]?.stringValue ?? media?["baseRawUrl"]?.stringValue,
                 isVideo: type == "VIDEO",
                 viewsCount: Int(s["viewsCount"]?.int64Value ?? 0),
                 reactionsCount: Int(s["reactionsCount"]?.int64Value ?? 0),

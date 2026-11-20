@@ -13,21 +13,20 @@ public extension AppStore {
         return .object(["type": .int(type), "primaryId": .int(chat.id)])
     }
 
-    /// Max opcode 242: `{chatId(typed), action 0 pin | 1 unpin | 2 unpin all, messageIds, forMe, notify}`.
+    /// Mobile protocol (as maxplus/rumax): op 55 `{chatId, pinMessageId, notifyPin}`; `pinMessageId: "0"` unpins.
+    /// (op 242 is the web client's command and is unknown to the mobile server.)
     func setPinned(chatId: Int64, messageId: String, pinned: Bool, notify: Bool = true) async {
-        guard let chat = chats.first(where: { $0.id == chatId }), let mid = Int64(messageId) else { return }
-        var payload: [String: JSONValue] = [
-            "chatId": Self.typedChatId(chat),
-            "action": .int(pinned ? 0 : 1),
-            "messageIds": .array([.int(mid)]),
-            "notify": .bool(notify),
-        ]
-        if pinned { payload["forMe"] = .bool(false) }
+        guard chats.contains(where: { $0.id == chatId }) else { return }
         do {
-            let resp = try await client.sendAndWait(opcode: 242, payload: .object(payload))
-            applyPinnedState(resp.payload["pinnedMessagesState"], chatId: chatId, fallback: pinned ? messageId : nil)
+            let resp = try await client.sendAndWait(opcode: 55, payload: .object([
+                "chatId": .int(chatId),
+                "pinMessageId": .string(pinned ? messageId : "0"),
+                "notifyPin": .bool(pinned && notify),
+            ]))
+            if let raw = resp.payload["chat"] { await applyChatUpdate(raw) }
+            if let i = chats.firstIndex(where: { $0.id == chatId }) { chats[i].pinnedMessageId = pinned ? messageId : nil }
         } catch {
-            errorBanner = "Не удалось закрепить: \(error.localizedDescription)"
+            errorBanner = "Не удалось \(pinned ? "закрепить" : "открепить"): \(error.localizedDescription)"
         }
     }
 

@@ -45,3 +45,21 @@ final class MessageParsingTests: XCTestCase {
         XCTAssertNotNil(off?.seen)
     }
 }
+
+@MainActor
+final class ContactNameTests: XCTestCase {
+    func testCustomNameWinsAndLastNameIncluded() {
+        let store = AppStore()
+        let c = store.parseContactValue(.object(["id": .int(5), "names": .array([
+            .object(["type": .string("ONEME"), "name": .string("Иван"), "firstName": .string("Иван"), "lastName": .string("Петров")]),
+            .object(["type": .string("CUSTOM"), "firstName": .string("Ваня"), "lastName": .string("Работа")]),
+        ])]))
+        XCTAssertEqual(c.name, "Ваня Работа")
+        XCTAssertEqual(c.profileName, "Иван Петров")
+        let plain = store.parseContactValue(.object(["id": .int(6), "names": .array([
+            .object(["type": .string("ONEME"), "name": .string("Мария"), "firstName": .string("Мария"), "lastName": .string("Иванова")]),
+        ])]))
+        XCTAssertEqual(plain.name, "Мария Иванова")
+        XCTAssertNil(plain.profileName)
+    }
+}

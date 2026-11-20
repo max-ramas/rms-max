@@ -430,7 +430,6 @@ public final class AppStore: ObservableObject {
             ProtocolLog.add("synced: \(chats.count) chats, \(contacts.count) contacts")
             Task {
             await self.ensureContacts(for: self.chats)
-            await self.loadPresence(Array(self.chats.compactMap { self.dialogPeerId(for: $0) }.prefix(200)))
         }
             if let open = selectedChatId { Task { await self.loadMessages(chatId: open) } }
         } catch {
@@ -1305,13 +1304,20 @@ public final class AppStore: ObservableObject {
 
     private func parseContact(_ v: JSONValue) -> MaxContact {
         let id = v["id"]?.int64Value ?? 0
-        let firstName = v["names"]?.arrayValue?.first?["firstName"]?.stringValue
-            ?? v["firstName"]?.stringValue ?? ""
-        let lastName = v["names"]?.arrayValue?.first?["lastName"]?.stringValue
-            ?? v["lastName"]?.stringValue ?? ""
-        let combinedName = v["names"]?.arrayValue?.first?["name"]?.stringValue
-            ?? [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")
-        return MaxContact(
+        // `names`: CUSTOM = how I renamed the contact, ONEME = the user's own profile name. CUSTOM wins.
+        let names = v["names"]?.arrayValue ?? []
+        let entry = names.first { $0["type"]?.stringValue == "CUSTOM" }
+            ?? names.first { $0["type"]?.stringValue == "ONEME" }
+            ?? names.first
+        let firstName = (entry?["firstName"]?.stringValue ?? v["firstName"]?.stringValue ?? "").trimmingCharacters(in: .whitespaces)
+        let lastName = (entry?["lastName"]?.stringValue ?? v["lastName"]?.stringValue ?? "").trimmingCharacters(in: .whitespaces)
+        let joined = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        let combinedName = joined.isEmpty ? (entry?["name"]?.stringValue ?? v["name"]?.stringValue ?? "") : joined
+        let own = names.first { $0["type"]?.stringValue == "ONEME" }
+        let ownName = own.map { o in
+            [o["firstName"]?.stringValue, o["lastName"]?.stringValue].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        var contact = MaxContact(
             id: id,
             name: combinedName.isEmpty ? "Контакт #\(id)" : combinedName,
             firstName: firstName,
@@ -1325,6 +1331,8 @@ public final class AppStore: ObservableObject {
             registrationTime: v["registrationTime"]?.int64Value,
             gender: v["gender"]?.stringValue
         )
+        if let ownName, !ownName.isEmpty, ownName != contact.name { contact.profileName = ownName }
+        return contact
     }
 
     func parseChat(_ v: JSONValue) -> MaxChat {
@@ -1454,6 +1462,10 @@ public final class AppStore: ObservableObject {
         )
     }
 
+    nonisolated static let knownControlEvents: Set<String> = [
+        "new", "add", "remove", "leave", "joinByLink", "title", "icon", "pin", "botStarted", "system", "hello", "privacyWarning", "sendContact",
+    ]
+
     nonisolated static func parseAttaches(_ raw: JSONValue?, messageId id: String) -> [MaxAttachment] {
         (raw?.arrayValue ?? []).enumerated().map { idx, a in
             let type = a["_type"]?.stringValue ?? a["type"]?.stringValue ?? "FILE"
@@ -1486,7 +1498,12 @@ public final class AppStore: ObservableObject {
             case "CONTROL":
                 att.control = ControlEvent(event: a["event"]?.stringValue ?? "",
                                            userIds: (a["userIds"]?.arrayValue ?? []).compactMap(\.int64Value) + [a["userId"]?.int64Value].compactMap { $0 },
-                                           title: a["title"]?.stringValue)
+                                           title: a["title"]?.stringValue,
+                                           message: a["message"]?.stringValue ?? a["shortMessage"]?.stringValue,
+                                           kind: a["type"]?.stringValue)
+                if !Self.knownControlEvents.contains(att.control?.event ?? "") {
+                    ProtocolLog.add("unknown CONTROL event=\(att.control?.event ?? "?")")
+                }
             case "CONTACT":
                 att.contactId = a["contactId"]?.int64Value
             case "LOCATION":

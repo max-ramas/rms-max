@@ -12,7 +12,6 @@ struct ContentView: View {
     @State private var joinLinkInput = ""
     @State private var joinSecureCall = true
     @State private var joinVideoCall = false
-    @State private var newGroupTitle = ""
 
     @State private var showingFolders = false
     @State private var showingJoinLink = false
@@ -150,7 +149,7 @@ struct ContentView: View {
             joinConferenceSheet
         }
         .sheet(isPresented: $showingNewGroupSheet) {
-            newGroupSheet
+            NewChatSheet()
         }
         .sheet(isPresented: $showingJoinLink) {
             JoinByLinkSheet()
@@ -247,6 +246,9 @@ struct ContentView: View {
                 } header: {
                     Text("Сообщения")
                 }
+                if searchText.trimmingCharacters(in: .whitespaces).count >= 2 {
+                    PublicSearchSection(query: searchText)
+                }
             } else {
                 ForEach(filteredChats) { chat in
                     ChatRowView(chat: chat)
@@ -278,9 +280,15 @@ struct ContentView: View {
     private var joinConferenceSheet: some View {
         NavigationStack {
             Form {
-                TextField("Ссылка или ID звонка (https://max.ru/joincall/...)", text: $joinLinkInput)
-                Toggle("Включить сквозное шифрование (SFrame)", isOn: $joinSecureCall)
-                Toggle("Начать с видео", isOn: $joinVideoCall)
+                Section {
+                    TextField("Ссылка", text: $joinLinkInput, prompt: Text("https://max.ru/joincall/…"))
+                } footer: {
+                    Text("Ссылка на звонок MAX или его идентификатор.")
+                }
+                Section {
+                    Toggle("Сквозное шифрование (только между RMS MAKS)", isOn: $joinSecureCall)
+                    Toggle("Начать с видео", isOn: $joinVideoCall)
+                }
             }
             .navigationTitle("Присоединиться к звонку")
             .toolbar {
@@ -304,39 +312,6 @@ struct ContentView: View {
         #endif
     }
 
-    private var newGroupSheet: some View {
-        NavigationStack {
-            Form {
-                TextField("Название группы", text: $newGroupTitle)
-                Text("После создания группы откройте её настройки шифрования (🔒), чтобы активировать групповое E2E (X25519 + Ed25519).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .navigationTitle("Новая группа")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена") { showingNewGroupSheet = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Создать") {
-                        let title = newGroupTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                        showingNewGroupSheet = false
-                        newGroupTitle = ""
-                        Task {
-                            _ = try? await store.client.createGroup(title: title, userIds: [])
-                            if let acc = store.currentAccount {
-                                await store.connectAndSyncAccount(acc)
-                            }
-                        }
-                    }
-                    .disabled(newGroupTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        #if os(macOS)
-        .frame(minWidth: 400, minHeight: 210)
-        #endif
-    }
 }
 
 private struct SearchHitRow: View {

@@ -16,17 +16,18 @@ public struct CallHistoryItem: Identifiable, Equatable, Sendable {
     public let isGroup: Bool
 
     public init?(_ v: JSONValue) {
-        guard let id = v["historyId"]?.int64Value, let chatId = v["chatId"]?.int64Value else { return nil }
+        guard let id = v["historyId"]?.int64Value ?? v["id"]?.int64Value,
+              let chatId = v["chatId"]?.int64Value ?? v["peerId"]?.int64Value ?? v["callerId"]?.int64Value else { return nil }
         self.id = id
         callId = v["callId"]?.stringValue ?? ""
         callName = v["callName"]?.stringValue
         callerId = v["callerId"]?.int64Value ?? 0
         self.chatId = chatId
-        isVideo = v["callType"]?.stringValue == "VIDEO"
+        isVideo = v["callType"]?.stringValue == "VIDEO" || v["isVideo"]?.boolValue == true
         hangupType = v["hangupType"]?.stringValue ?? "HUNGUP"
         joinLink = v["joinLink"]?.stringValue
         time = v["time"]?.int64Value ?? 0
-        durationMs = v["durationMs"]?.int64Value ?? 0
+        durationMs = v["durationMs"]?.int64Value ?? v["duration"]?.int64Value ?? 0
         isGroup = v["groupCallType"] != nil
     }
 
@@ -34,12 +35,21 @@ public struct CallHistoryItem: Identifiable, Equatable, Sendable {
 }
 
 public extension AppStore {
-    /// Max opcode 163 with `callHistorySync: 0` returns the whole history; push 165 adds/removes.
+    /// Mobile protocol (as rumax): op 79 `{forward: false, count}` -> `{history: [...]}`.
+    /// (163 `callHistorySync` is the web client's command.) Field names of unknown shapes go to the diagnostics log.
     func loadCallHistory() async {
         do {
-            let resp = try await client.sendAndWait(opcode: 163, payload: .object(["callHistorySync": .int(0)]))
-            callHistorySync = resp.payload["callHistorySync"]?.int64Value ?? callHistorySync
-            callHistory = (resp.payload["callHistoryItems"]?.arrayValue ?? []).compactMap(CallHistoryItem.init).sorted { $0.time > $1.time }
+            let resp = try await client.sendAndWait(opcode: 79, payload: .object(["forward": .bool(false), "count": .int(100)]))
+            let list = resp.payload["history"]?.arrayValue ?? resp.payload["callHistoryItems"]?.arrayValue
+                ?? resp.payload["calls"]?.arrayValue ?? resp.payload["items"]?.arrayValue ?? []
+            let parsed = list.compactMap(CallHistoryItem.init)
+            if parsed.count < list.count, let first = list.first?.objectValue {
+                ProtocolLog.add("call history: \(list.count - parsed.count) items not parsed; keys=\(first.keys.sorted().joined(separator: ","))")
+            }
+            if list.isEmpty, let keys = resp.payload.objectValue?.keys {
+                ProtocolLog.add("call history empty; payload keys=\(keys.sorted().joined(separator: ","))")
+            }
+            callHistory = parsed.sorted { $0.time > $1.time }
         } catch {
             errorBanner = "История звонков: \(error.localizedDescription)"
         }

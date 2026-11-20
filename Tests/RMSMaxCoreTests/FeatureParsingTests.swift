@@ -50,8 +50,15 @@ final class FeatureParsingTests: XCTestCase {
         XCTAssertEqual(AppStore.parseComposite("u12:d3"), CallParticipantRef(id: 12, deviceIdx: 3))
     }
 
-    func testAdminPermissionBits() {
-        // members, admins, chat info, pin, calls, link, delete messages
-        XCTAssertEqual(AppStore.defaultAdminPermissions, 1246)
+    func testAdminPermissionsAreMobileStrings() {
+        // Mobile protocol (op 55 adminParticipants) takes permission names, not the web bitmask.
+        XCTAssertEqual(Set(AppStore.adminPermissions),
+                       ["CHANGE_CHAT_INFO", "DELETE_OTHERS_MESSAGES", "PIN_MESSAGE", "ADD_REMOVE_MEMBERS", "ADD_ADMINS", "CALL"])
+    }
+
+    func testControlEventSummaries() {
+        XCTAssertEqual(ControlEvent(event: "hello", userIds: [], title: nil).summary, "Теперь в MAX")
+        XCTAssertEqual(ControlEvent(event: "system", userIds: [], title: nil, message: "Текст").summary, "Текст")
+        XCTAssertEqual(ControlEvent(event: "privacyWarning", userIds: [], title: nil, kind: "screenshot").summary, "Сделан снимок экрана")
     }
 }

@@ -10,9 +10,12 @@ public enum MaxTransportError: Error, LocalizedError {
     case requestTimeout
     case notConnected
     case apiError(JSONValue)
+    /// The server rejected this opcode earlier (`proto.opcode`): not sent again, because MAX drops the connection on it.
+    case unsupportedOpcode(UInt16)
 
     public var errorDescription: String? {
         switch self {
+        case .unsupportedOpcode: return "Эта функция недоступна в мобильном протоколе MAX"
         case .connectionFailed(let msg): return "Ошибка подключения: \(msg)"
         case .connectionClosed(let msg): return "Соединение закрыто: \(msg)"
         case .sendFailed(let msg): return "Ошибка отправки: \(msg)"
