@@ -58,7 +58,7 @@ struct CallHistoryView: View {
 
     private func subtitle(_ item: CallHistoryItem, outgoing: Bool) -> String {
         let date = Date(timeIntervalSince1970: Double(item.time) / 1000)
-        let when = date.formatted(date: .abbreviated, time: .shortened)
+        let when = Self.dateText(date)
         let kind: String
         switch item.hangupType {
         case "MISSED": kind = "Пропущенный"
@@ -69,5 +69,26 @@ struct CallHistoryView: View {
             kind = (outgoing ? "Исходящий" : "Входящий") + (s > 0 ? String(format: " · %d:%02d", s / 60, s % 60) : "")
         }
         return (item.isGroup ? "Групповой · " : "") + kind + " · " + when
+    }
+}
+
+
+extension CallHistoryView {
+    private static let ruFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.dateFormat = "d MMM yyyy, HH:mm"
+        return f
+    }()
+
+    /// «сегодня, 15:02», «вчера, 09:10», «24 авг. 2026, 15:02» — always Russian, whatever the system language is.
+    static func dateText(_ date: Date) -> String {
+        let cal = Calendar.current
+        let time = DateFormatter()
+        time.locale = Locale(identifier: "ru_RU")
+        time.dateFormat = "HH:mm"
+        if cal.isDateInToday(date) { return "сегодня, " + time.string(from: date) }
+        if cal.isDateInYesterday(date) { return "вчера, " + time.string(from: date) }
+        return ruFormatter.string(from: date)
     }
 }

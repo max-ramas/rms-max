@@ -309,6 +309,7 @@ struct VideoMessageView: View {
     @State private var loading = false
     @State private var failed = false
     @State private var playing = false
+    @State private var status: String?
 
     private var durationText: String {
         let s = Int((attachment.durationMs ?? 0) / (((attachment.durationMs ?? 0) > 1000) ? 1000 : 1))
@@ -325,7 +326,7 @@ struct VideoMessageView: View {
                 VStack(spacing: 4) {
                     if loading { ProgressView().tint(.white) }
                     else { Image(systemName: failed ? "exclamationmark.triangle" : "play.fill").font(.system(size: 34)).foregroundStyle(.white) }
-                    Text(failed ? "Не удалось загрузить" : durationText).font(.caption.bold()).foregroundStyle(.white.opacity(0.85))
+                    Text(failed ? "Не удалось загрузить" : (status ?? durationText)).font(.caption.bold()).foregroundStyle(.white.opacity(0.85))
                 }
             }
         }
@@ -341,24 +342,49 @@ struct VideoMessageView: View {
             if playing { player.pause(); playing = false } else { player.play(); playing = true }
             return
         }
-        guard !loading, let mid = Int64(message.id), let vid = attachment.videoId else { failed = true; return }
-        loading = true; failed = false
+        guard !loading, Int64(message.id) != nil, attachment.videoId != nil else { failed = true; return }
+        loading = true; failed = false; status = nil
         Task {
             defer { loading = false }
-            do {
-                let url = try await store.client.videoPlaybackURL(chatId: message.chatId, messageId: mid, videoId: vid, token: attachment.token)
-                let p = AVPlayer(url: url)
-                p.actionAtItemEnd = .pause
-                NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: p.currentItem, queue: .main) { _ in
-                    p.seek(to: .zero); playing = false
+            // The CDN uses the Russian root CA, which AVPlayer does not trust: download with our own trust rules, play the file.
+            // A fresh clip is transcoded on the server first, so the first tries may fail — wait a little.
+            var lastError: Error?
+            for attempt in 0..<6 {
+                do {
+                    let file = try await store.localFile(for: attachment, in: message)
+                    try await start(file)
+                    return
+                } catch {
+                    lastError = error
+                    ProtocolLog.add("video message try \(attempt + 1) failed: \(error.localizedDescription)")
+                    if attempt < 5 {
+                        status = "Видео обрабатывается…"
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    }
                 }
-                player = p
-                p.play()
-                playing = true
-            } catch {
-                failed = true
-                ProtocolLog.add("video message playback failed: \(error.localizedDescription)")
             }
+            status = nil
+            failed = true
+            ProtocolLog.add("video message gave up: \(lastError?.localizedDescription ?? "?")")
+        }
+    }
+
+    private func start(_ file: URL) async throws {
+        let item = AVPlayerItem(url: file)
+        let p = AVPlayer(playerItem: item)
+        p.actionAtItemEnd = .pause
+        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in
+            p.seek(to: .zero); playing = false
+        }
+        player = p
+        p.play()
+        playing = true
+        // AVPlayer never throws: look at the item status shortly after to catch a broken or still incomplete file.
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        if item.status == .failed {
+            player = nil; playing = false
+            try? FileManager.default.removeItem(at: file) // do not cache a bad download
+            throw item.error ?? NSError(domain: "VideoMessage", code: 1, userInfo: [NSLocalizedDescriptionKey: "Файл не воспроизводится"])
         }
     }
 }

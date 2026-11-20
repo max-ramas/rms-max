@@ -1,17 +1,40 @@
 import SwiftUI
+import AVFoundation
+import UniformTypeIdentifiers
 import RMSMaxCore
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Row of story circles above the chat list.
 struct StoriesBar: View {
     @EnvironmentObject private var store: AppStore
     @State private var open: StoryOwnerBox?
+    @State private var showingNew = false
 
     struct StoryOwnerBox: Identifiable { let id = UUID(); let owner: StoryOwner }
 
     var body: some View {
-        if !store.storyPreviews.isEmpty {
+        if store.currentAccount != nil {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
+                    Button { showingNew = true } label: {
+                        VStack(spacing: 3) {
+                            ZStack {
+                                AvatarView(url: store.currentAccount?.avatarURL, title: store.currentAccount?.displayName ?? "", size: 40)
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 16)).foregroundStyle(.white, Color.accentColor)
+                                    .background(Circle().fill(.background).frame(width: 14, height: 14))
+                                    .offset(x: 15, y: 15)
+                            }
+                            .frame(width: 46, height: 46)
+                            Text("Моя история").font(.caption2).lineLimit(1).frame(width: 60)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .help("Опубликовать историю")
                     ForEach(store.storyPreviews) { p in
                         Button { open = StoryOwnerBox(owner: p.owner) } label: {
                             VStack(spacing: 3) {
@@ -32,6 +55,7 @@ struct StoriesBar: View {
             .sheet(item: $open) { box in
                 StoryViewer(owner: box.owner)
             }
+            .sheet(isPresented: $showingNew) { NewStorySheet() }
         }
     }
 }
@@ -60,7 +84,7 @@ struct StoryViewer: View {
                 VStack(spacing: 10) {
                     HStack {
                         Text(store.storyOwnerName(owner)).bold()
-                        Text(Date(timeIntervalSince1970: Double(story.time) / 1000).formatted(date: .omitted, time: .shortened))
+                        Text(Date(timeIntervalSince1970: Double(story.time) / 1000).formatted(.dateTime.hour().minute().locale(Locale(identifier: "ru_RU"))))
                             .foregroundStyle(.white.opacity(0.7))
                         Spacer()
                     }
@@ -137,3 +161,87 @@ struct StoryViewer: View {
         if index + 1 < stories.count { index += 1 } else { dismiss() }
     }
 }
+
+
+/// Publish a photo or a video story (op 80/82 upload + op 215).
+struct NewStorySheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var importing = false
+    @State private var photo: Data?
+    @State private var photoMime = "image/jpeg"
+    @State private var video: Data?
+    @State private var videoName = "story.mp4"
+    @State private var durationMs = 0
+    @State private var contactsOnly = false
+    @State private var publishing = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    if let photo, let img = Self.preview(photo) {
+                        img.resizable().scaledToFit().frame(maxHeight: 280).frame(maxWidth: .infinity)
+                    } else if video != nil {
+                        Label("Видео \(String(format: "%d:%02d", durationMs / 60000, durationMs / 1000 % 60))", systemImage: "film")
+                    } else {
+                        Text("Выберите фото или видео — история будет доступна 24 часа.").foregroundStyle(.secondary)
+                    }
+                    Button(photo == nil && video == nil ? "Выбрать файл…" : "Выбрать другой…") { importing = true }
+                }
+                Section {
+                    Picker("Кто увидит", selection: $contactsOnly) {
+                        Text("Все").tag(false)
+                        Text("Только контакты").tag(true)
+                    }
+                }
+            }
+            .navigationTitle("Новая история")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(publishing ? "Публикуем…" : "Опубликовать") {
+                        publishing = true
+                        Task {
+                            let ok = await store.publishStory(photo: photo, mime: photoMime, video: video, videoFileName: videoName,
+                                                              durationMs: durationMs, contactsOnly: contactsOnly)
+                            publishing = false
+                            if ok { dismiss() }
+                        }
+                    }
+                    .disabled((photo == nil && video == nil) || publishing)
+                }
+            }
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.image, .movie, .mpeg4Movie]) { result in
+                guard case .success(let url) = result else { return }
+                load(url)
+            }
+        }
+        .macSheet(width: 460, height: 460)
+    }
+
+    private static func preview(_ data: Data) -> Image? {
+        #if os(macOS)
+        return NSImage(data: data).map { Image(nsImage: $0) }
+        #else
+        return UIImage(data: data).map { Image(uiImage: $0) }
+        #endif
+    }
+
+    private func load(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { store.errorBanner = "Не удалось прочитать файл"; return }
+        let ext = url.pathExtension.lowercased()
+        if ["mp4", "mov", "m4v"].contains(ext) {
+            video = data; photo = nil; videoName = "story.\(ext == "mov" ? "mov" : "mp4")"
+            Task {
+                let d = try? await AVURLAsset(url: url).load(.duration)
+                durationMs = Int((d?.seconds ?? 0) * 1000)
+            }
+        } else {
+            photo = data; video = nil; photoMime = ext == "png" ? "image/png" : "image/jpeg"
+        }
+    }
+}
+

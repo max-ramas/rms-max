@@ -29,7 +29,25 @@ enum NWHTTPSClient {
         func enter() -> Bool { lock.lock(); defer { lock.unlock() }; if done { return false }; done = true; return true }
     }
 
+    /// GET with up to 4 redirects.
+    static func get(url: URL, timeout: TimeInterval = 180) async throws -> Response {
+        var current = url
+        for _ in 0..<5 {
+            let r = try await request(method: "GET", url: current, headers: [:], body: Data(), timeout: timeout)
+            if [301, 302, 303, 307, 308].contains(r.status), let loc = r.headers["location"], let next = URL(string: loc, relativeTo: current)?.absoluteURL {
+                current = next
+                continue
+            }
+            return r
+        }
+        throw ClientError.badResponse
+    }
+
     static func post(url: URL, headers: [String: String], body: Data, timeout: TimeInterval = 180) async throws -> Response {
+        try await request(method: "POST", url: url, headers: headers, body: body, timeout: timeout)
+    }
+
+    private static func request(method: String, url: URL, headers: [String: String], body: Data, timeout: TimeInterval) async throws -> Response {
         guard url.scheme?.lowercased() == "https", let host = url.host else { throw ClientError.unsupportedScheme }
         let port = UInt16(url.port ?? 443)
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -42,8 +60,9 @@ enum NWHTTPSClient {
         let queue = DispatchQueue(label: "dev.rms.maks.upload.tls")
         try await connect(conn, queue: queue)
 
-        var head = "POST \(target) HTTP/1.1\r\nHost: \(url.port.map { "\(host):\($0)" } ?? host)\r\n"
-        head += "User-Agent: RMS-MAKS\r\nAccept: */*\r\nConnection: close\r\nContent-Length: \(body.count)\r\n"
+        var head = "\(method) \(target) HTTP/1.1\r\nHost: \(url.port.map { "\(host):\($0)" } ?? host)\r\n"
+        head += "User-Agent: RMS-MAKS\r\nAccept: */*\r\nConnection: close\r\n"
+        if method != "GET" { head += "Content-Length: \(body.count)\r\n" }
         for (k, v) in headers { head += "\(k): \(v)\r\n" }
         head += "\r\n"
 

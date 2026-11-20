@@ -25,3 +25,12 @@ final class NWHTTPSClientTests: XCTestCase {
         XCTAssertEqual(r.status, 400, "garbage upload without a valid signature is refused by the server, over a working TLS session")
     }
 }
+
+extension NWHTTPSClientTests {
+    func testLiveGetOverNetworkFramework() async throws {
+        guard ProcessInfo.processInfo.environment["RMS_NETWORK_TESTS"] == "1" else { throw XCTSkip("network") }
+        let r = try await NWHTTPSClient.get(url: URL(string: "https://au2.oneme.ru/")!)
+        XCTAssertEqual(r.status, 404)
+        XCTAssertGreaterThan(r.body.count, 0)
+    }
+}

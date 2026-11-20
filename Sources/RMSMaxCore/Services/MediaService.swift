@@ -91,11 +91,21 @@ enum MediaHTTP {
     }
 
     static func get(_ url: URL) async throws -> Data {
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw MediaError.downloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+        do {
+            let (data, response) = try await session.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                throw MediaError.downloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+            }
+            return data
+        } catch let e as MediaError {
+            throw e
+        } catch {
+            // The system stack failed (TLS on some CDN hosts): retry over Network.framework.
+            ProtocolLog.add("download \(url.host ?? "?")\(url.path) failed (\((error as NSError).code)); retrying over Network.framework")
+            let r = try await NWHTTPSClient.get(url: url)
+            guard (200...299).contains(r.status) else { throw MediaError.downloadFailed("HTTP \(r.status)") }
+            return r.body
         }
-        return data
     }
 }
 
@@ -103,8 +113,8 @@ enum MediaHTTP {
 
 extension MaxClient {
     /// opcode 80 → multipart POST → `photos.{id}.token`.
-    public func uploadPhoto(data: Data, mime: String, profile: Bool = false) async throws -> String {
-        let resp = try await getPhotoUploadURL(profile: profile)
+    public func uploadPhoto(data: Data, mime: String, profile: Bool = false, story: Bool = false) async throws -> String {
+        let resp = try await getPhotoUploadURL(profile: profile, story: story)
         guard let urlStr = resp.payload["url"]?.stringValue ?? resp.payload["info"]?.arrayValue?.first?["url"]?.stringValue,
               let url = URL(string: urlStr)
         else { throw MediaError.noUploadURL }
@@ -147,6 +157,11 @@ extension MaxClient {
         let (respData, response) = try await MediaHTTP.rawUpload(to: url, data: data, fileName: fileName)
         try MediaHTTP.checkOK(response, respData)
         return fileId
+    }
+
+    /// Story video: opcode 82 `{uploaderType: 0, type: 3}`.
+    public func uploadStoryVideo(data: Data, fileName: String) async throws -> (videoId: Int64, token: String) {
+        try await uploadToVideoPlatform(data: data, uploaderType: 0, type: 3, fileName: fileName)
     }
 
     /// opcode 82 `type: 1` — round video message («кружок»), processed on the server (uploaderType 0).

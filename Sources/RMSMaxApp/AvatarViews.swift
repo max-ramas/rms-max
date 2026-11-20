@@ -107,7 +107,7 @@ struct UserProfileView: View {
                     LabeledContent("О себе") { Text(d).textSelection(.enabled).multilineTextAlignment(.trailing) }
                 }
                 if let reg = contact?.registrationTime, reg > 0 {
-                    LabeledContent("В MAX с", value: Date(timeIntervalSince1970: TimeInterval(reg) / 1000).formatted(date: .long, time: .omitted))
+                    LabeledContent("В MAX с", value: Date(timeIntervalSince1970: TimeInterval(reg) / 1000).formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "ru_RU"))))
                 }
                 LabeledContent("ID", value: String(userId))
             }

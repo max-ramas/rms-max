@@ -665,8 +665,9 @@ public actor MaxClient {
         try await sendAndWait(opcode: 87, payload: .object(["count": .int(1), "profile": .bool(profile)]))
     }
 
-    public func getPhotoUploadURL(profile: Bool = false) async throws -> MaxResponse {
-        try await sendAndWait(opcode: 80, payload: .object(["count": .int(1), "profile": .bool(profile)]))
+    public func getPhotoUploadURL(profile: Bool = false, story: Bool = false) async throws -> MaxResponse {
+        if story { return try await sendAndWait(opcode: 80, payload: .object(["count": .int(1), "type": .int(1)])) }
+        return try await sendAndWait(opcode: 80, payload: .object(["count": .int(1), "profile": .bool(profile)]))
     }
 
     public func getFileDownloadInfo(chatId: Int64, messageId: Int64, fileId: Int64) async throws -> MaxResponse {

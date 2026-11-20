@@ -67,6 +67,38 @@ public extension AppStore {
         }
     }
 
+    /// Publishes my own story. As the official client: upload (80 `type:1` / 82 `type:3`), then op 215
+    /// `{stories:[{cid, settings, expiration, media}]}`; `settings` 1 = visible to everyone, 2 = contacts only; lifetime 24 h.
+    @discardableResult
+    func publishStory(photo: Data? = nil, mime: String = "image/jpeg", video: Data? = nil, videoFileName: String = "story.mp4",
+                      durationMs: Int = 0, contactsOnly: Bool = false) async -> Bool {
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let media: JSONValue
+            if let photo {
+                let token = try await client.uploadPhoto(data: photo, mime: mime, story: true)
+                media = .object(["_type": .string("PHOTO"), "photoToken": .string(token)])
+            } else if let video {
+                let v = try await client.uploadStoryVideo(data: video, fileName: videoFileName)
+                media = .object(["_type": .string("VIDEO"), "videoType": .int(2), "token": .string(v.token), "duration": .int(Int64(durationMs))])
+            } else {
+                return false
+            }
+            _ = try await client.sendAndWait(opcode: 215, payload: .object(["stories": .array([.object([
+                "cid": .int(Int64(Date().timeIntervalSince1970 * 1000)),
+                "settings": .int(contactsOnly ? 2 : 1),
+                "expiration": .int(86_400_000),
+                "media": media,
+            ])])]))
+            await loadStoryFeed()
+            return true
+        } catch {
+            errorBanner = "История не опубликована: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     func markStoryViewed(_ story: Story) async {
         _ = try? await client.sendAndWait(opcode: 214, payload: .object(["owner": story.owner.json, "storyId": .int(story.id)]))
     }
