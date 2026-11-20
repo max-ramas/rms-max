@@ -1,6 +1,6 @@
 name: RMSMax
 options:
-  bundleIdPrefix: dev.rms.max
+  bundleIdPrefix: dev.rms.maks
   createIntermediateGroups: true
   deploymentTarget:
     macOS: "14.0"
@@ -10,7 +10,7 @@ settings:
     SWIFT_VERSION: "5.10"
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "8"
-    PRODUCT_NAME: "RMS MAX"
+    PRODUCT_NAME: "RMS MAKS"
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     DEVELOPMENT_TEAM: UG53523VMB
     CODE_SIGN_STYLE: Automatic
@@ -31,13 +31,13 @@ targets:
     info:
       path: XcodeSupport/macOS-Info.plist
       properties:
-        CFBundleDisplayName: RMS MAX
+        CFBundleDisplayName: RMS MAKS
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         LSApplicationCategoryType: public.app-category.social-networking
-        NSCameraUsageDescription: "RMS MAX использует камеру для зашифрованных видеозвонков."
-        NSMicrophoneUsageDescription: "RMS MAX использует микрофон для голосовых и видеозвонков."
+        NSCameraUsageDescription: "RMS MAKS использует камеру для зашифрованных видеозвонков."
+        NSMicrophoneUsageDescription: "RMS MAKS использует микрофон для голосовых и видеозвонков."
         NSUserNotificationAlertStyle: alert
     entitlements:
       path: XcodeSupport/macOS.entitlements
@@ -46,7 +46,7 @@ targets:
         com.apple.security.device.audio-input: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.rms.max.macos
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rms.maks.macos
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
         ENABLE_APP_SANDBOX: NO
@@ -63,7 +63,7 @@ targets:
     info:
       path: XcodeSupport/iOS-Info.plist
       properties:
-        CFBundleDisplayName: RMS MAX
+        CFBundleDisplayName: RMS MAKS
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -77,15 +77,15 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSCameraUsageDescription: "RMS MAX использует камеру для зашифрованных видеозвонков."
-        NSMicrophoneUsageDescription: "RMS MAX использует микрофон для голосовых и видеозвонков."
-        NSFaceIDUsageDescription: "RMS MAX использует Face ID для защиты локального хранилища и ключей."
+        NSCameraUsageDescription: "RMS MAKS использует камеру для зашифрованных видеозвонков."
+        NSMicrophoneUsageDescription: "RMS MAKS использует микрофон для голосовых и видеозвонков."
+        NSFaceIDUsageDescription: "RMS MAKS использует Face ID для защиты локального хранилища и ключей."
         UIBackgroundModes:
           - audio
           - voip
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.rms.max.ios
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rms.maks.ios
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
 schemes:

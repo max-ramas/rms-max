@@ -92,7 +92,7 @@ public enum OggOpusEncoder {
         head.append(0)                                   // mapping family
         out.append(page([head], granule: 0, serial: serial, seq: &seq, flags: 0x02))
 
-        let vendor = Data("RMS MAX".utf8)
+        let vendor = Data("RMS MAKS".utf8)
         var tags = Data("OpusTags".utf8)
         tags.append(contentsOf: le32(UInt32(vendor.count)))
         tags.append(vendor)

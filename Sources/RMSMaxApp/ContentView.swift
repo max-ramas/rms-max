@@ -32,7 +32,7 @@ struct ContentView: View {
             } else {
                 NavigationSplitView {
                     chatListSidebar
-                        .navigationTitle("RMS MAX")
+                        .navigationTitle("RMS MAKS")
                         .searchable(text: $searchText, prompt: "Поиск чатов и сообщений")
                         .task(id: searchText) {
                             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -77,7 +77,7 @@ struct ContentView: View {
                         ContentUnavailableView(
                             "Выберите чат",
                             systemImage: "lock.shield",
-                            description: Text("RMS MAX — нативный клиент без телеметрии со сквозным шифрованием переписки и звонков.")
+                            description: Text("RMS MAKS — нативный клиент без телеметрии со сквозным шифрованием переписки и звонков.")
                         )
                     }
                 }
@@ -205,7 +205,7 @@ struct ContentView: View {
             Image(systemName: "lock.applewatch")
                 .font(.system(size: 54))
                 .foregroundStyle(.tint)
-            Text("RMS MAX заблокирован")
+            Text("RMS MAKS заблокирован")
                 .font(.title2.bold())
             Button("Разблокировать") {
                 Task { await store.authenticateBiometrics() }

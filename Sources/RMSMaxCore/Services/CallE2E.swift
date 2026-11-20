@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// End-to-end encrypted calls between two RMS MAX clients.
+/// End-to-end encrypted calls between two RMS MAKS clients.
 ///
 /// * Key: HKDF-SHA256 over the chat's E2E session secret (the one our encrypted messages already
 ///   use), salted with the conversation id → a fresh 256-bit media key per call.

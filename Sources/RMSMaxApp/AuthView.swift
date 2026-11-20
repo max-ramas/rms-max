@@ -18,7 +18,7 @@ struct AuthView: View {
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 56))
                     .foregroundStyle(.tint)
-                Text("RMS MAX")
+                Text("RMS MAKS")
                     .font(.largeTitle.bold())
                 Text("Нативный клиент без телеметрии для macOS и iOS")
                     .font(.subheadline)

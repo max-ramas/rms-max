@@ -131,7 +131,7 @@ public final class MaxURLSessionDelegate: NSObject, URLSessionDelegate, Sendable
 
 public final class MobileTLSTransport: MaxTransport, @unchecked Sendable {
     private let connection: NWConnection
-    private let queue = DispatchQueue(label: "dev.rms.max.mobile.tls", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "dev.rms.maks.mobile.tls", qos: .userInitiated)
     private let host: String
 
     private init(connection: NWConnection, host: String) {
@@ -147,7 +147,7 @@ public final class MobileTLSTransport: MaxTransport, @unchecked Sendable {
         let secOpts = tlsOptions.securityProtocolOptions
         sec_protocol_options_set_min_tls_protocol_version(secOpts, .TLSv12)
         sec_protocol_options_set_tls_server_name(secOpts, host)
-        let evalQueue = DispatchQueue(label: "dev.rms.max.tls.verify")
+        let evalQueue = DispatchQueue(label: "dev.rms.maks.tls.verify")
         sec_protocol_options_set_verify_block(secOpts, { _, trust, complete in
             let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
             let ok = MaxTrustEvaluator.evaluateServerTrust(secTrust, host: host)

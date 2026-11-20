@@ -1,4 +1,4 @@
-# RMS MAX
+# RMS MAKS
 
 Нативный мультиплатформенный клиент для **Max** на **Swift 5.10+ / SwiftUI** для **macOS 14+ (Apple Silicon)**, **iOS 17+** и **iPadOS 17+**.
 
@@ -73,5 +73,5 @@ xcodebuild -project RMSMax.xcodeproj -scheme RMSMax_iOS -configuration Release -
 ### Установка на MacBook M2 и iPhone / iPad с Apple Developer Account
 1. Откройте `RMSMax.xcodeproj` в Xcode.
 2. Выберите нужный таргет (**`RMSMax_macOS`** для MacBook или **`RMSMax_iOS`** для iPhone/iPad).
-3. В разделе **Signing & Capabilities** выберите свою **Team** и при необходимости задайте уникальный `Bundle Identifier` (по умолчанию `dev.rms.max.macos` / `dev.rms.max.ios`).
+3. В разделе **Signing & Capabilities** выберите свою **Team** и при необходимости задайте уникальный `Bundle Identifier` (по умолчанию `dev.rms.maks.macos` / `dev.rms.maks.ios`).
 4. Выберите ваше устройство (My Mac или подключённый iPhone / iPad) и нажмите **Run (`⌘R`)** или **Product → Archive** для установки/экспорта.

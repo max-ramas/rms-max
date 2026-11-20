@@ -73,7 +73,7 @@ struct SettingsView: View {
             } header: {
                 Text("Звонки")
             } footer: {
-                Text("Приложение остаётся активным в фоне, чтобы входящие звонки доходили. Расходует заряд батареи. Без этого звонки приходят, только пока RMS MAX открыт: системные VoIP-пуши MAX доступны лишь официальному приложению.")
+                Text("Приложение остаётся активным в фоне, чтобы входящие звонки доходили. Расходует заряд батареи. Без этого звонки приходят, только пока RMS MAKS открыт: системные VoIP-пуши MAX доступны лишь официальному приложению.")
             }
             #endif
 
@@ -116,7 +116,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Настройки RMS MAX")
+        .navigationTitle("Настройки RMS MAKS")
         .task {
             if store.isConnected {
                 await store.refreshSessions()

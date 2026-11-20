@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>RMS MAX</string>
+	<string>RMS MAKS</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -25,9 +25,9 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSCameraUsageDescription</key>
-	<string>RMS MAX использует камеру для зашифрованных видеозвонков.</string>
+	<string>RMS MAKS использует камеру для зашифрованных видеозвонков.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>RMS MAX использует микрофон для голосовых и видеозвонков.</string>
+	<string>RMS MAKS использует микрофон для голосовых и видеозвонков.</string>
 	<key>NSUserNotificationAlertStyle</key>
 	<string>alert</string>
 </dict>

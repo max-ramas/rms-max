@@ -96,7 +96,7 @@ public final class AppStore: ObservableObject {
         do {
             let ok = try await context.evaluatePolicy(
                 .deviceOwnerAuthentication,
-                localizedReason: "Разблокировать RMS MAX"
+                localizedReason: "Разблокировать RMS MAKS"
             )
             if ok {
                 isLocked = false

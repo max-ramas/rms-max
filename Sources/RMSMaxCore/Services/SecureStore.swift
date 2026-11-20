@@ -5,7 +5,7 @@ public actor SecureStore {
     public static let shared = SecureStore()
 
     private let baseDirectory: URL
-    private let keychainService = "dev.rms.max.masterkey"
+    private let keychainService = "dev.rms.maks.masterkey"
     private let keychainAccount = "storage-key-v1"
     private var cachedMasterKey: Data?
 
@@ -15,7 +15,7 @@ public actor SecureStore {
         } else {
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            self.baseDirectory = appSupport.appendingPathComponent("RMSMax", isDirectory: true)
+            self.baseDirectory = appSupport.appendingPathComponent("RMSMaks", isDirectory: true)
         }
         try? FileManager.default.createDirectory(at: self.baseDirectory, withIntermediateDirectories: true)
     }

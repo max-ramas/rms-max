@@ -215,7 +215,7 @@ public final class WebRTCCallEngine: NSObject, @unchecked Sendable {
     }
 
     /// End-to-end media encryption (AES-GCM per frame, LiveKit FrameCryptor) with a key both
-    /// RMS MAX sides derive from their chat's E2E session. Only works peer-to-peer: the SFU mixes
+    /// RMS MAKS sides derive from their chat's E2E session. Only works peer-to-peer: the SFU mixes
     /// audio, which needs plaintext, so the session never enables this in SERVER topology.
     public func enableE2E(key: Data, salt: Data) {
         guard let pc else { return }

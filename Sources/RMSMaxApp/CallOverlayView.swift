@@ -102,7 +102,7 @@ struct CallOverlayView: View {
             }
             if call.secureStatus == .active {
                 badge("E2E", icon: "lock.fill")
-                    .help("Звук и видео зашифрованы между двумя RMS MAX. Сверьте код с собеседником.")
+                    .help("Звук и видео зашифрованы между двумя RMS MAKS. Сверьте код с собеседником.")
             } else if call.secureStatus == .pending {
                 badge("E2E…", icon: "lock.open")
             }
