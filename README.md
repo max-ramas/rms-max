@@ -80,7 +80,7 @@
 
 ## Скачать
 
-> Установочные файлы раздаются с официального сервера обновлений RMS. Страница продукта: [rms-ds.com](https://rms-ds.com/en/products/rms-maks).
+> Установочные файлы раздаются с официального сервера обновлений RMS. Страница продукта: [rms-ds.com](https://rms-ds.com/products/rms-maks).
 
 ### macOS (macOS 14+, Apple Silicon и Intel)
 
