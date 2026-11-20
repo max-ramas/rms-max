@@ -17,9 +17,11 @@ struct RMSMaxApp: App {
                 .environmentObject(store)
                 .onOpenURL { store.incomingURL = $0 }
                 #if os(macOS)
-                // The chat list (min 400) and the chat (min 380) must always fit, otherwise AppKit squeezes the list
+                // The chat list (min 320: the whole top button panel fits) and the chat (min 380) must always fit, otherwise AppKit squeezes the list
                 // down to a few letters and the toolbar buttons disappear.
-                .frame(minWidth: 800, minHeight: 520)
+                .frame(minWidth: 720, minHeight: 520)
+                .background(WindowStateKeeper(frameKey: "rmsmaks.window.main.frame", splitKey: "rmsmaks.window.main.sidebarWidth",
+                                              sidebarMin: 320, sidebarMax: 520, minWindowWidth: 720))
                 #endif
                 .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
         }
@@ -43,6 +45,7 @@ struct RMSMaxApp: App {
                 .environmentObject(store)
                 .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
                 .frame(minWidth: 520, minHeight: 560)
+                .background(WindowStateKeeper(frameKey: "rmsmaks.window.settings.frame"))
         }
 
         MenuBarExtra(isInserted: $showMenuBarExtra) {

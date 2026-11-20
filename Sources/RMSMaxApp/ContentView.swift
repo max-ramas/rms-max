@@ -91,7 +91,7 @@ struct ContentView: View {
                         .navigationTitle("RMS MAKS")
                         #if os(macOS)
                         // A comfortable width for the action bar and the chat list.
-                        .navigationSplitViewColumnWidth(min: 400, ideal: 420, max: 560)
+                        .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 520)
                         #endif
                         .toolbar {
                             ToolbarItemGroup(placement: .primaryAction) {
