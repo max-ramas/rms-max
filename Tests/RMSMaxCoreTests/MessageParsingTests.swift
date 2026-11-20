@@ -1,4 +1,6 @@
 import XCTest
+import AVFoundation
+import Contacts
 @testable import RMSMaxCore
 
 @MainActor
@@ -160,5 +162,25 @@ final class UploadKindTests: XCTestCase {
     func testFileNameEncodingMatchesEncodeURIComponent() {
         XCTAssertEqual(MediaHTTP.encodeFileName("voice.ogg"), "voice.ogg")
         XCTAssertEqual(MediaHTTP.encodeFileName("Мой файл (1).pdf"), "%D0%9C%D0%BE%D0%B9%20%D1%84%D0%B0%D0%B9%D0%BB%20(1).pdf")
+    }
+}
+
+final class PermissionStateTests: XCTestCase {
+    func testNotificationStateMapping() {
+        XCTAssertEqual(PermissionState.from(.notDetermined, alertsOn: false, soundOn: false), .notDetermined)
+        XCTAssertEqual(PermissionState.from(.denied, alertsOn: true, soundOn: true), .denied)
+        XCTAssertEqual(PermissionState.from(.authorized, alertsOn: true, soundOn: false), .granted)
+        XCTAssertEqual(PermissionState.from(.authorized, alertsOn: false, soundOn: true), .granted)
+        XCTAssertEqual(PermissionState.from(.authorized, alertsOn: false, soundOn: false), .silenced,
+                       "allowed in the system but no banner and no sound: the user would still see nothing")
+        XCTAssertFalse(PermissionState.silenced.isUsable)
+    }
+
+    func testAVAndContactsMapping() {
+        XCTAssertEqual(PermissionState.from(AVAuthorizationStatus.authorized), .granted)
+        XCTAssertEqual(PermissionState.from(AVAuthorizationStatus.denied), .denied)
+        XCTAssertEqual(PermissionState.from(AVAuthorizationStatus.notDetermined), .notDetermined)
+        XCTAssertEqual(PermissionState.from(CNAuthorizationStatus.denied), .denied)
+        XCTAssertEqual(PermissionState.from(CNAuthorizationStatus.authorized), .granted)
     }
 }

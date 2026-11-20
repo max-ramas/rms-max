@@ -32,9 +32,13 @@ struct AddressBookImportView: View {
         NavigationStack {
             Group {
                 if denied {
-                    ContentUnavailableView("Нет доступа к контактам",
-                                           systemImage: "person.crop.circle.badge.xmark",
-                                           description: Text("Разрешите доступ в Системных настройках → Конфиденциальность → Контакты."))
+                    VStack(spacing: 12) {
+                        ContentUnavailableView("Нет доступа к контактам",
+                                               systemImage: "person.crop.circle.badge.xmark",
+                                               description: Text("Разрешите доступ в настройках системы: Конфиденциальность → Контакты."))
+                        Button("Открыть настройки") { PermissionsCenter.shared.openSettings(for: .contacts) }
+                        Button("Я разрешил — повторить") { denied = false; Task { await load() } }
+                    }
                 } else {
                     List(filtered) { e in
                         HStack {
@@ -100,12 +104,7 @@ struct AddressBookImportView: View {
 
     private func load() async {
         let store = CNContactStore()
-        let granted: Bool
-        switch CNContactStore.authorizationStatus(for: .contacts) {
-        case .authorized: granted = true
-        case .notDetermined: granted = (try? await store.requestAccess(for: .contacts)) ?? false
-        default: granted = (CNContactStore.authorizationStatus(for: .contacts).rawValue == 4) // .limited (iOS 18)
-        }
+        let granted = await PermissionsCenter.shared.request(.contacts).isUsable
         guard granted else { denied = true; return }
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactPhoneNumbersKey] as [CNKeyDescriptor]
         let list: [Entry] = await Task.detached {

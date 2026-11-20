@@ -18,6 +18,7 @@ struct RMSMaxApp: App {
                 BackgroundKeepAlive.shared.appDidEnterBackground(callActive: store.activeCall.phase != .idle)
             case .active:
                 BackgroundKeepAlive.shared.appWillEnterForeground()
+                Task { await PermissionsCenter.shared.refresh() } // the user may have switched something in system settings
             default:
                 break
             }

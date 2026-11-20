@@ -120,6 +120,8 @@ struct SettingsView: View {
                 Text("Обложка ролика загружается с i.ytimg.com. Сам плеер (youtube-nocookie.com, без сохранения cookie) открывается только по нажатию.")
             }
 
+            PermissionsSection()
+
             UpdateSettingsSection()
 
             DiagnosticsSection()

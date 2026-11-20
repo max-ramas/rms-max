@@ -112,6 +112,10 @@ public final class AppStore: ObservableObject {
         Task { await self.autoCheckForUpdates() }
         // The system notification prompt can stay unanswered for a long time; never block startup on it,
         // otherwise a late bootstrap overwrites an auth step the user has already advanced.
+        NotificationService.shared.install { [weak self] chatId in
+            guard let self else { return }
+            Task { await self.selectChat(chatId) }
+        }
         Task { await NotificationService.shared.requestAuthorization() }
         let (loadedAccounts, currentId) = await store.loadAccounts()
         self.accounts = loadedAccounts
@@ -645,7 +649,8 @@ public final class AppStore: ObservableObject {
     }
 
     private func sendIncomingNotification(for msg: MaxMessage, chatId: Int64) async {
-        guard selectedChatId != chatId else { return }
+        // Skip only when the user is actually looking at this chat; a background window must still notify.
+        guard !(selectedChatId == chatId && NotificationService.shared.appIsActive) else { return }
         guard let chat = chats.first(where: { $0.id == chatId }) else { return }
         guard !chat.isMuted else { return }
 

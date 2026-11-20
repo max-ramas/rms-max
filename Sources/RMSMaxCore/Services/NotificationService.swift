@@ -2,7 +2,33 @@ import Foundation
 @preconcurrency import UserNotifications
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
+
+/// Shows notifications also while the app is in front (for chats other than the open one) and opens the chat on click.
+final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    var onOpenChat: (@MainActor (Int64) -> Void)?
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let chatId = (response.notification.request.content.userInfo["chatId"] as? NSNumber)?.int64Value
+        completionHandler()
+        guard let chatId else { return }
+        Task { @MainActor [weak self] in
+            #if os(macOS)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            NSApplication.shared.windows.first { $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+            #endif
+            self?.onOpenChat?(chatId)
+        }
+    }
+}
 
 @MainActor
 public final class NotificationService {
@@ -20,10 +46,31 @@ public final class NotificationService {
 
     public init() {}
 
-    public func requestAuthorization() async {
+    private let delegate = NotificationDelegate()
+
+    /// Must run before anything can be delivered: without a delegate macOS shows no banner while the app is in front
+    /// and a click on a notification opens nothing.
+    public func install(onOpenChat: @escaping @MainActor (Int64) -> Void) {
         guard isBundledApp else { return }
-        let center = UNUserNotificationCenter.current()
-        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        delegate.onOpenChat = onOpenChat
+        UNUserNotificationCenter.current().delegate = delegate
+    }
+
+    /// Asks once (the system prompt) when nothing was decided yet; the state is tracked in PermissionsCenter.
+    public func requestAuthorization() async {
+        await PermissionsCenter.shared.refresh()
+        if PermissionsCenter.shared.state(.notifications) == .notDetermined {
+            await PermissionsCenter.shared.request(.notifications)
+        }
+    }
+
+    /// True when the user is looking at the app: the window is key and the app is in front.
+    public var appIsActive: Bool {
+        #if os(macOS)
+        return NSApplication.shared.isActive && NSApplication.shared.keyWindow != nil
+        #else
+        return UIApplication.shared.applicationState == .active
+        #endif
     }
 
     public func notifyIncomingMessage(

@@ -47,6 +47,7 @@ struct ContentView: View {
                     chatListSidebar
                         .safeAreaInset(edge: .top) {
                             VStack(spacing: 0) {
+                                PermissionsBanner()
                                 UpdateBanner()
                                 StoriesBar()
                                 if !store.folders.isEmpty || store.isConnected {
@@ -195,6 +196,7 @@ struct ContentView: View {
             case nil: break
             }
         }
+        .permissionAlert()
         .sheet(isPresented: $store.updatePromptShown) { UpdateSheet() }
         .sheet(isPresented: $showingQuickSwitch) { QuickSwitcherSheet() }
         .sheet(isPresented: $showingContacts) {

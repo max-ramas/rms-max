@@ -24,20 +24,12 @@ final class VoiceRecorder: NSObject, ObservableObject {
     }
 
     static func requestPermission() async -> Bool {
-        #if os(iOS)
-        return await AVAudioApplication.requestRecordPermission()
-        #else
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: return true
-        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .audio)
-        default: return false
-        }
-        #endif
+        await PermissionsCenter.shared.ensureMicrophone()
     }
 
     func start() async throws {
         guard await Self.requestPermission() else {
-            throw MediaError.unsupported("Нет доступа к микрофону. Разрешите его в настройках системы.")
+            throw MediaError.unsupported("Нет доступа к микрофону")
         }
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()

@@ -344,7 +344,7 @@ public extension AppStore {
     // MARK: - Connection
 
     private func prepareDevices(video: Bool) async -> Bool {
-        guard await Self.requestMicrophone() else {
+        guard await PermissionsCenter.shared.ensureMicrophone() else {
             endCall(message: "Нет доступа к микрофону")
             return false
         }
