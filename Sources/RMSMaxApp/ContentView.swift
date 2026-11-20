@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var showingJoinLink = false
 
     private var folderChats: [MaxChat] {
+        if store.selectedFolderId == AppStore.chatsTabId { return store.withPinnedFirst(store.chats.filter { $0.type != .channel }) }
         guard let id = store.selectedFolderId, let f = store.folders.first(where: { $0.id == id }) else { return store.withPinnedFirst(store.chats) }
         return store.withPinnedFirst(store.chats(in: f))
     }

@@ -90,6 +90,7 @@ struct FolderBar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 chip(nil, "Все")
+                chip(AppStore.chatsTabId, "Чаты")
                 ForEach(store.folders) { f in chip(f.id, (f.emoji.map { $0 + " " } ?? "") + f.title) }
                 Button { showingManager = true } label: { Image(systemName: "folder.badge.gearshape") }
                     .buttonStyle(.borderless)

@@ -85,6 +85,9 @@ public extension AppStore {
 
     // MARK: - Folders (272 list, 274 save, 276 delete, push 277)
 
+    /// Built-in tab that is not stored on the server: everything except channels (dialogs and groups).
+    static let chatsTabId = "local.chats"
+
     func loadFolders() async {
         guard let resp = try? await client.sendAndWait(opcode: 272, payload: .object(["folderSync": .int(0)])) else { return }
         applyFolders(resp.payload)
