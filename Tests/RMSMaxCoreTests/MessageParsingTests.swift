@@ -147,3 +147,18 @@ final class PinsAndFoldersTests: XCTestCase {
         XCTAssertEqual(store.chats[0].pinnedCount, 0)
     }
 }
+
+final class UploadKindTests: XCTestCase {
+    func testUploadKindFollowsPathLikeOfficialClient() {
+        XCTAssertTrue(MediaHTTP.isMaxMediaUpload(URL(string: "https://au2.oneme.ru/uploadAudio?sig=1")!))
+        XCTAssertTrue(MediaHTTP.isMaxMediaUpload(URL(string: "https://x.oneme.ru/uploadImage")!))
+        XCTAssertTrue(MediaHTTP.isMaxMediaUpload(URL(string: "https://x.oneme.ru/uploadVideo")!))
+        XCTAssertFalse(MediaHTTP.isMaxMediaUpload(URL(string: "https://x.oneme.ru/uploadAudio/extra")!))
+        XCTAssertFalse(MediaHTTP.isMaxMediaUpload(URL(string: "https://x.oneme.ru/upload.do")!))
+    }
+
+    func testFileNameEncodingMatchesEncodeURIComponent() {
+        XCTAssertEqual(MediaHTTP.encodeFileName("voice.ogg"), "voice.ogg")
+        XCTAssertEqual(MediaHTTP.encodeFileName("Мой файл (1).pdf"), "%D0%9C%D0%BE%D0%B9%20%D1%84%D0%B0%D0%B9%D0%BB%20(1).pdf")
+    }
+}

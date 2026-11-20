@@ -26,6 +26,38 @@ public enum MediaError: Error, LocalizedError {
 // MARK: - HTTP helpers (Max CDN may use the Mintsyfry root, so use the shared trust delegate)
 
 enum MediaHTTP {
+    /// Official client (web bundle `Ise`): `/uploadImage|uploadAudio|uploadVideo` are plain «max-media» POSTs without
+    /// Content-Range; every other upload URL is a resumable «range» upload that needs `Content-Range: bytes 0-(n-1)/n`.
+    static func isMaxMediaUpload(_ url: URL) -> Bool {
+        url.path.range(of: "^/upload(Image|Audio|Video)$", options: .regularExpression) != nil
+    }
+
+    /// RFC 3986 unreserved set, like JS `encodeURIComponent`.
+    static func encodeFileName(_ name: String) -> String {
+        name.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")) ?? "file"
+    }
+
+    /// POST of raw bytes exactly as the official client sends them; failures are logged with host/path and error codes.
+    static func rawUpload(to url: URL, data: Data, fileName: String) async throws -> (Data, URLResponse) {
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        req.setValue("attachment; filename=\(encodeFileName(fileName))", forHTTPHeaderField: "Content-Disposition")
+        let plain = isMaxMediaUpload(url)
+        if !plain { req.setValue("bytes 0-\(max(0, data.count - 1))/\(data.count)", forHTTPHeaderField: "Content-Range") }
+        do {
+            let r = try await session.upload(for: req, from: data)
+            ProtocolLog.add("upload \(plain ? "max-media" : "range") \(url.host ?? "?")\(url.path) \(data.count) B -> HTTP \((r.1 as? HTTPURLResponse)?.statusCode ?? -1)")
+            return r
+        } catch {
+            let ns = error as NSError
+            let stream = ns.userInfo["_kCFStreamErrorCodeKey"].map { " stream=\($0)" } ?? ""
+            let under = (ns.userInfo[NSUnderlyingErrorKey] as? NSError).map { " underlying=\($0.domain)/\($0.code)" } ?? ""
+            ProtocolLog.add("upload \(plain ? "max-media" : "range") \(url.scheme ?? "?")://\(url.host ?? "?"):\(url.port ?? 443)\(url.path) \(data.count) B failed: \(ns.domain)/\(ns.code)\(stream)\(under)")
+            throw error
+        }
+    }
+
     static let session: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 60
@@ -97,27 +129,23 @@ extension MaxClient {
               let fileId = info["fileId"]?.int64Value
         else { throw MediaError.noUploadURL }
 
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("attachment; filename=\(Self.headerSafe(fileName))", forHTTPHeaderField: "Content-Disposition")
-        req.setValue("0-\(max(0, data.count - 1))/\(data.count)", forHTTPHeaderField: "Content-Range")
-        let (respData, response) = try await MediaHTTP.session.upload(for: req, from: data)
+        let (respData, response) = try await MediaHTTP.rawUpload(to: url, data: data, fileName: fileName)
         try MediaHTTP.checkOK(response, respData)
         return fileId
     }
 
     /// opcode 82 (uploaderType 0, type 0) → raw POST → (videoId, token).
     public func uploadVideo(data: Data) async throws -> (videoId: Int64, token: String) {
-        try await uploadToVideoPlatform(data: data, uploaderType: 0, type: 0)
+        try await uploadToVideoPlatform(data: data, uploaderType: 0, type: 0, fileName: "video.mp4")
     }
 
     /// Voice message: opcode 82 type 2. Like the official web client, non-Ogg audio (our AAC/M4A)
     /// goes through the processing uploader (uploaderType 0) so the server transcodes it; Ogg goes direct (1).
     public func uploadAudio(data: Data, isOgg: Bool = false) async throws -> (videoId: Int64, token: String) {
-        try await uploadToVideoPlatform(data: data, uploaderType: isOgg ? 1 : 0, type: 2)
+        try await uploadToVideoPlatform(data: data, uploaderType: isOgg ? 1 : 0, type: 2, fileName: isOgg ? "voice.ogg" : "voice.m4a")
     }
 
-    private func uploadToVideoPlatform(data: Data, uploaderType: Int64, type: Int64) async throws -> (videoId: Int64, token: String) {
+    private func uploadToVideoPlatform(data: Data, uploaderType: Int64, type: Int64, fileName: String) async throws -> (videoId: Int64, token: String) {
         let resp = try await sendAndWait(
             opcode: 82,
             payload: .object(["uploaderType": .int(uploaderType), "type": .int(type), "count": .int(1)])
@@ -128,19 +156,7 @@ extension MaxClient {
         else { throw MediaError.noUploadURL }
         var token = info["token"]?.stringValue ?? ""
 
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        let fname = String(Int64(Date().timeIntervalSince1970 * 1_000_000) & 0x7FFF_FFFF)
-        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        req.setValue("attachment; filename=\"\(fname)\"", forHTTPHeaderField: "Content-Disposition")
-        req.setValue("bytes 0-\(max(0, data.count - 1))/\(data.count)", forHTTPHeaderField: "Content-Range")
-        let respData: Data, response: URLResponse
-        do {
-            (respData, response) = try await MediaHTTP.session.upload(for: req, from: data)
-        } catch {
-            ProtocolLog.add("media upload to \(url.host ?? "?") failed: \(error.localizedDescription)")
-            throw error
-        }
+        let (respData, response) = try await MediaHTTP.rawUpload(to: url, data: data, fileName: fileName)
         try MediaHTTP.checkOK(response, respData)
         let text = String(data: respData, encoding: .utf8) ?? ""
         if text.contains("error_msg") || text.contains("error_code") {
