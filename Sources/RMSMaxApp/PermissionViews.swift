@@ -38,7 +38,7 @@ struct PermissionsSection: View {
 
     var body: some View {
         Section {
-            ForEach(PermissionKind.allCases) { kind in
+            ForEach(PermissionKind.available) { kind in
                 let state = perms.state(kind)
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: icon(state))

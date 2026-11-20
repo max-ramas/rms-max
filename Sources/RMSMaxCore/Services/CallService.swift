@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import AVFoundation
 import Network
 
@@ -813,6 +814,13 @@ public extension AppStore {
             callLocalVideo = activeCall.cameraEnabled ? engine.localVideoTrack : nil
         } else {
             #if os(macOS)
+            // Without Screen Recording access the capturer replaces the camera with nothing and the picture freezes:
+            // ask first and leave the call untouched when it is not granted yet.
+            guard PermissionsCenter.shared.state(.screen) == .granted || CGPreflightScreenCaptureAccess() else {
+                _ = await PermissionsCenter.shared.request(.screen)
+                PermissionsCenter.shared.alert = .screen
+                return
+            }
             guard await engine.startScreenShare() else {
                 errorBanner = "Не удалось начать демонстрацию экрана. Разрешите запись экрана в Системных настройках → Конфиденциальность."
                 return

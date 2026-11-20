@@ -706,6 +706,8 @@ private struct MessageBubbleView: View {
         if let event = message.attaches.first(where: { $0.control != nil })?.control,
            message.bodyText.isEmpty {
             ControlEventText(message: message, event: event)
+        } else if let call = message.attaches.first(where: { $0.call != nil })?.call {
+            CallEventRow(message: message, call: call)
         } else {
             bubble
         }

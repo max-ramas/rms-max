@@ -68,7 +68,7 @@ struct StickerPicker: View {
             }
         }
         .padding(10)
-        .frame(width: 360, height: 380)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             if store.stickerPacks.isEmpty { await store.loadStickerPacks() }
         }

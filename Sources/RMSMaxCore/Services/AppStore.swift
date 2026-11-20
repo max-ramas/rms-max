@@ -1618,6 +1618,10 @@ public final class AppStore: ObservableObject {
                 if !Self.knownControlEvents.contains(att.control?.event ?? "") {
                     ProtocolLog.add("unknown CONTROL event=\(att.control?.event ?? "?")")
                 }
+            case "CALL":
+                att.call = CallAttach(isVideo: a["callType"]?.stringValue == "VIDEO" || a["type"]?.stringValue == "VIDEO",
+                                      hangupType: a["hangupType"]?.stringValue ?? "HUNGUP",
+                                      durationMs: Int(a["duration"]?.int64Value ?? 0), joinLink: a["joinLink"]?.stringValue)
             case "CONTACT":
                 att.contactId = a["contactId"]?.int64Value
             case "LOCATION":

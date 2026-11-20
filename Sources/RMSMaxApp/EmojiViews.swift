@@ -61,9 +61,12 @@ struct EmojiStickerPanel: View {
                 }
             } else {
                 StickerPicker(onPick: onSticker)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
             }
         }
-        .frame(width: 340, height: 380)
+        // One fixed size for both tabs, so the popover does not grow (and slide off the screen) when switching.
+        .frame(width: 360, height: 420)
     }
 
     private var current: [String] {

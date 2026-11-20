@@ -415,6 +415,8 @@ public struct MaxAttachment: Codable, Sendable, Equatable, Identifiable {
     public var share: LinkShare? = nil
     /// `_type: CONTROL` service event (`event`, `userIds`, `title`).
     public var control: ControlEvent? = nil
+    /// `_type: CALL` — a call record shown in the chat.
+    public var call: CallAttach? = nil
     /// `VIDEO` attach: 1 = round video message («кружок»).
     public var videoType: Int? = nil
     /// `_type: CONTACT`.
@@ -425,6 +427,33 @@ public struct MaxAttachment: Codable, Sendable, Equatable, Identifiable {
 
     public var kind: AttachmentKind { AttachmentKind(rawType: type) }
     public var isVideoMessage: Bool { kind == .video && videoType == 1 }
+}
+
+/// `{_type: CALL, callType: AUDIO|VIDEO, hangupType: MISSED|REJECTED|CANCELED|HUNGUP, duration (ms), joinLink?}`.
+public struct CallAttach: Codable, Sendable, Equatable {
+    public var isVideo: Bool
+    public var hangupType: String
+    public var durationMs: Int
+    public var joinLink: String?
+
+    public init(isVideo: Bool, hangupType: String, durationMs: Int, joinLink: String?) {
+        self.isVideo = isVideo; self.hangupType = hangupType; self.durationMs = durationMs; self.joinLink = joinLink
+    }
+
+    public var isMissed: Bool { ["MISSED", "REJECTED", "CANCELED"].contains(hangupType) }
+
+    /// «Исходящий видеозвонок · 1:23», «Пропущенный звонок», «Отменённый видеозвонок», «Звонок по ссылке».
+    public func text(outgoing: Bool) -> String {
+        let kind = isVideo ? "видеозвонок" : "звонок"
+        let secs = durationMs / 1000
+        let time = durationMs > 0 ? String(format: " · %d:%02d", secs / 60, secs % 60) : ""
+        if joinLink != nil { return "Звонок по ссылке" + time }
+        switch hangupType {
+        case "MISSED": return (outgoing ? "Исходящий " : "Пропущенный ") + kind
+        case "REJECTED", "CANCELED": return (outgoing ? "Отменённый " : "Пропущенный ") + kind
+        default: return (outgoing ? "Исходящий " : "Входящий ") + kind + time
+        }
+    }
 }
 
 public struct LinkShare: Codable, Sendable, Equatable {
@@ -651,6 +680,7 @@ public struct MaxMessage: Codable, Sendable, Equatable, Identifiable {
         }
         if let first = attaches.first(where: { $0.keyboard == nil }) {
             if let c = first.control { return c.summary }
+            if let call = first.call { return call.text(outgoing: false).replacingOccurrences(of: "Входящий ", with: "").capitalizedFirst }
             if first.contactId != nil { return "Контакт" }
             if first.latitude != nil { return "Геопозиция" }
             if first.poll != nil { return "Опрос" }
@@ -969,4 +999,9 @@ public extension Data {
     var hexString: String {
         map { String(format: "%02x", $0) }.joined()
     }
+}
+
+
+extension String {
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }

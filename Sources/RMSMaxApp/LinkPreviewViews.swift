@@ -250,3 +250,35 @@ struct ContactAndLocationViews: View {
 
     private struct IdBox: Identifiable { let id: Int64 }
 }
+
+
+/// «Исходящий видеозвонок · 1:23» — a call record in the timeline: centred, grey, no bubble.
+struct CallEventRow: View {
+    @EnvironmentObject private var store: AppStore
+    let message: MaxMessage
+    let call: CallAttach
+
+    private static let time: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f }()
+
+    var body: some View {
+        let outgoing = message.senderId == store.currentAccount?.userId
+        HStack(spacing: 6) {
+            Image(systemName: icon(outgoing))
+                .foregroundStyle(call.isMissed && !outgoing ? Color.red : Color.secondary)
+            Text(call.text(outgoing: outgoing))
+                .foregroundStyle(call.isMissed && !outgoing ? Color.red : Color.secondary)
+            Text(Self.time.string(from: message.date)).foregroundStyle(.tertiary)
+        }
+        .font(.caption)
+        .padding(.horizontal, 12).padding(.vertical, 5)
+        .background(Capsule().fill(Color.secondary.opacity(0.12)))
+        .frame(maxWidth: .infinity)
+    }
+
+    private func icon(_ outgoing: Bool) -> String {
+        if call.joinLink != nil { return "person.2.fill" }
+        let base = call.isVideo ? "video" : "phone"
+        if call.isMissed { return outgoing ? "\(base).arrow.up.right" : (call.isVideo ? "video.slash" : "phone.arrow.down.left") }
+        return outgoing ? (call.isVideo ? "video.fill" : "phone.arrow.up.right") : (call.isVideo ? "video.fill" : "phone.arrow.down.left")
+    }
+}

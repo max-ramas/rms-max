@@ -56,11 +56,16 @@ struct CallOverlayView: View {
                 header
                 if call.isGroup && call.phase != .ended {
                     participantGrid
-                    titleBlock
+                    titleBlock()
+                } else if peerVideo != nil {
+                    // Over the other person's video the name and the timer sit at the top, not across the picture.
+                    HStack { titleBlock(compact: true); Spacer() }
+                        .padding(.horizontal, 24)
+                    Spacer()
                 } else {
                     Spacer()
-                    if peerVideo == nil { avatar }
-                    titleBlock
+                    avatar
+                    titleBlock()
                     Spacer()
                 }
                 if call.phase != .ended && !(call.isIncoming && call.phase == .ringing) {
@@ -132,13 +137,15 @@ struct CallOverlayView: View {
         }
     }
 
-    private var titleBlock: some View {
-        VStack(spacing: 8) {
+    private func titleBlock(compact: Bool = false) -> some View {
+        VStack(alignment: compact ? .leading : .center, spacing: compact ? 3 : 8) {
             Text(call.peerName)
-                .font(call.isGroup ? .headline : .title.bold())
+                .font(compact ? .title3.bold() : (call.isGroup ? .headline : .title.bold()))
                 .foregroundStyle(.white)
+                .shadow(color: .black.opacity(compact ? 0.5 : 0), radius: 3)
             Text(subtitle)
-                .font(.headline.monospacedDigit())
+                .font((compact ? Font.subheadline : Font.headline).monospacedDigit())
+                .shadow(color: .black.opacity(compact ? 0.5 : 0), radius: 3)
                 .foregroundStyle(.white.opacity(0.75))
             if call.secureStatus == .active, let fp = call.fingerprint {
                 Text("Код сверки: \(fp)")

@@ -367,3 +367,24 @@ final class TextFormattingTests: XCTestCase {
         XCTAssertNotNil(a.runs.first { $0.inlinePresentationIntent == .stronglyEmphasized })
     }
 }
+
+final class CallAttachTests: XCTestCase {
+    func testCallTextLikeTheOfficialClient() {
+        let done = CallAttach(isVideo: true, hangupType: "HUNGUP", durationMs: 83_000, joinLink: nil)
+        XCTAssertEqual(done.text(outgoing: true), "Исходящий видеозвонок · 1:23")
+        XCTAssertEqual(done.text(outgoing: false), "Входящий видеозвонок · 1:23")
+        XCTAssertEqual(CallAttach(isVideo: false, hangupType: "MISSED", durationMs: 0, joinLink: nil).text(outgoing: false), "Пропущенный звонок")
+        XCTAssertEqual(CallAttach(isVideo: true, hangupType: "CANCELED", durationMs: 0, joinLink: nil).text(outgoing: true), "Отменённый видеозвонок")
+        XCTAssertEqual(CallAttach(isVideo: true, hangupType: "HUNGUP", durationMs: 5000, joinLink: "x").text(outgoing: true), "Звонок по ссылке · 0:05")
+    }
+
+    @MainActor func testCallAttachIsParsedFromAMessage() {
+        let m = AppStore().parseMessage(.object(["id": .string("5"), "sender": .int(1), "time": .int(1), "attaches": .array([
+            .object(["_type": .string("CALL"), "conversationId": .string("c"), "callType": .string("VIDEO"),
+                     "hangupType": .string("HUNGUP"), "duration": .int(83000)]),
+        ])]), chatId: 3)
+        XCTAssertEqual(m.attaches[0].call?.durationMs, 83000)
+        XCTAssertEqual(m.attaches[0].call?.isVideo, true)
+        XCTAssertEqual(m.displayText, "Видеозвонок · 1:23", "chat-list preview")
+    }
+}

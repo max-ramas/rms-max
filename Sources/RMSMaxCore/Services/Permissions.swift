@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import AVFoundation
 import Contacts
 @preconcurrency import UserNotifications
@@ -9,8 +10,17 @@ import UIKit
 #endif
 
 public enum PermissionKind: String, CaseIterable, Identifiable, Sendable {
-    case notifications, microphone, camera, contacts
+    case notifications, microphone, camera, contacts, screen
     public var id: String { rawValue }
+
+    /// Permissions that exist on this platform (screen recording is a Mac thing).
+    public static var available: [PermissionKind] {
+        #if os(macOS)
+        return allCases
+        #else
+        return allCases.filter { $0 != .screen }
+        #endif
+    }
 
     public var title: String {
         switch self {
@@ -18,6 +28,7 @@ public enum PermissionKind: String, CaseIterable, Identifiable, Sendable {
         case .microphone: return "Микрофон"
         case .camera: return "Камера"
         case .contacts: return "Контакты"
+        case .screen: return "Запись экрана"
         }
     }
 
@@ -28,6 +39,7 @@ public enum PermissionKind: String, CaseIterable, Identifiable, Sendable {
         case .microphone: return "Голосовые сообщения и звонки."
         case .camera: return "Видеозвонки."
         case .contacts: return "Импорт номеров из адресной книги — только по вашей кнопке, на сервер уходят лишь отмеченные номера."
+        case .screen: return "Демонстрация экрана в звонках. Когда macOS выдаст доступ, она предложит перезапустить приложение."
         }
     }
 }
@@ -100,6 +112,9 @@ public final class PermissionsCenter: ObservableObject {
         next[.microphone] = .from(AVCaptureDevice.authorizationStatus(for: .audio))
         next[.camera] = .from(AVCaptureDevice.authorizationStatus(for: .video))
         next[.contacts] = .from(CNContactStore.authorizationStatus(for: .contacts))
+        #if os(macOS)
+        next[.screen] = CGPreflightScreenCaptureAccess() ? .granted : (UserDefaults.standard.bool(forKey: "rmsmaks.screenAsked") ? .denied : .notDetermined)
+        #endif
         if isBundledApp {
             let s = await UNUserNotificationCenter.current().notificationSettings()
             next[.notifications] = .from(s.authorizationStatus, alertsOn: s.alertSetting == .enabled, soundOn: s.soundSetting == .enabled)
@@ -124,6 +139,11 @@ public final class PermissionsCenter: ObservableObject {
             _ = await AVCaptureDevice.requestAccess(for: .video)
         case .contacts:
             _ = try? await CNContactStore().requestAccess(for: .contacts)
+        case .screen:
+            #if os(macOS)
+            UserDefaults.standard.set(true, forKey: "rmsmaks.screenAsked")
+            _ = CGRequestScreenCaptureAccess()    // shows the system prompt; the grant takes effect after a restart
+            #endif
         }
         await refresh()
         return state(kind)
@@ -144,6 +164,7 @@ public final class PermissionsCenter: ObservableObject {
         case .microphone: anchor = "com.apple.preference.security?Privacy_Microphone"
         case .camera: anchor = "com.apple.preference.security?Privacy_Camera"
         case .contacts: anchor = "com.apple.preference.security?Privacy_Contacts"
+        case .screen: anchor = "com.apple.preference.security?Privacy_ScreenCapture"
         }
         if let url = URL(string: "x-apple.systempreferences:\(anchor)") { NSWorkspace.shared.open(url) }
         #else
