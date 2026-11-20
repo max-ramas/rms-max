@@ -48,15 +48,6 @@ struct ContentView: View {
                     chatListSidebar
                         .safeAreaInset(edge: .top) {
                             VStack(spacing: 0) {
-                                SidebarActionBar(
-                                    newGroup: { showingNewGroupSheet = true },
-                                    contacts: { showingContacts = true },
-                                    calls: { showingCallHistory = true },
-                                    createConference: { showingCreateConference = true },
-                                    joinCall: { showingJoinCallSheet = true },
-                                    openLink: { showingJoinLink = true },
-                                    settings: { showingSettings = true }
-                                )
                                 PermissionsBanner()
                                 UpdateBanner()
                                 StoriesBar()
@@ -79,6 +70,18 @@ struct ContentView: View {
                         // A comfortable width for the action bar and the chat list.
                         .navigationSplitViewColumnWidth(min: 400, ideal: 420, max: 560)
                         #endif
+                        .toolbar {
+                            ToolbarItemGroup(placement: .primaryAction) {
+                                Button { showingNewGroupSheet = true } label: { Label("Новая группа", systemImage: "square.and.pencil") }
+                                    .help("Новая группа или канал")
+                                Button { showingJoinLink = true } label: { Label("Открыть ссылку", systemImage: "link") }
+                                    .help("Открыть ссылку MAX")
+                                Button { showingCallHistory = true } label: { Label("Звонки", systemImage: "phone.badge.clock") }
+                                    .help("История звонков")
+                                Button { showingContacts = true } label: { Label("Контакты", systemImage: "person.crop.circle") }
+                                    .help("Контакты")
+                            }
+                        }
                         .searchable(text: $searchText, prompt: "Поиск чатов и сообщений")
                         .task(id: searchText) {
                             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -96,6 +99,20 @@ struct ContentView: View {
                             systemImage: "lock.shield",
                             description: Text("RMS MAKS — нативный клиент без телеметрии со сквозным шифрованием переписки и звонков.")
                         )
+                    }
+                }
+                // Global actions live in the right-hand panel, next to the chat buttons, where there is room for them.
+                .toolbar {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Menu {
+                            Button("Создать конференцию…") { showingCreateConference = true }
+                            Button("Присоединиться по ссылке…") { showingJoinCallSheet = true }
+                        } label: {
+                            Label("Конференция", systemImage: "video.badge.plus")
+                        }
+                        .help("Конференция: создать или присоединиться по ссылке")
+                        Button { showingSettings = true } label: { Label("Настройки", systemImage: "gearshape") }
+                            .help("Настройки")
                     }
                 }
             }
