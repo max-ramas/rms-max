@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Maksim Ramzaev. Part of RMS MAKS; see LICENSE.
+
 @_exported import LiveKitWebRTC
 
 // LiveKit builds WebRTC with an "LK" ObjC class prefix; keep the standard names in our code.

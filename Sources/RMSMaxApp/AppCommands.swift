@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Maksim Ramzaev. Part of RMS MAKS; see LICENSE.
+
 import SwiftUI
 import RMSMaxCore
 #if os(macOS)
@@ -6,7 +9,7 @@ import AppKit
 
 /// Window-level actions triggered from the menu bar, the menu-bar extra or keyboard shortcuts.
 enum AppAction: String {
-    case contacts, newGroup, callHistory, joinCall, openLink, checkUpdates, quickSwitch, nextChat, previousChat, createConference, settings
+    case contacts, newGroup, callHistory, joinCall, openLink, checkUpdates, quickSwitch, nextChat, previousChat, createConference, settings, about
 
     static let notification = Notification.Name("RMSMaksAppAction")
 
@@ -21,7 +24,8 @@ enum AppAction: String {
 
 struct RMSMaksCommands: Commands {
     var body: some Commands {
-        CommandGroup(after: .appInfo) {
+        CommandGroup(replacing: .appInfo) {
+            Button("О программе RMS MAKS") { AppAction.about.post() }
             Button("Проверить обновления…") { AppAction.checkUpdates.post() }
         }
         CommandGroup(after: .newItem) {
@@ -70,6 +74,7 @@ struct MenuBarContent: View {
         Divider()
         Button("Проверить обновления…") { AppAction.checkUpdates.post() }
         SettingsLink { Text("Настройки…") }
+        Button("О программе RMS MAKS") { AppAction.about.post() }
         Divider()
         Button("Выйти из RMS MAKS") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }

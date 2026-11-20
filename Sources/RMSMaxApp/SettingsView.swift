@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Maksim Ramzaev. Part of RMS MAKS; see LICENSE.
+
 import SwiftUI
 import RMSMaxCore
 
@@ -172,6 +175,8 @@ struct SettingsView: View {
             }
 
             PrivacySettingsSection()
+
+            AboutSettingsSection()
 
             Section {
                 Picker("Отправка сообщения", selection: $sendKey) {

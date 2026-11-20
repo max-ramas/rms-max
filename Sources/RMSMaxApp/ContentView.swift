@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Maksim Ramzaev. Part of RMS MAKS; see LICENSE.
+
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -10,6 +13,7 @@ struct ContentView: View {
     @EnvironmentObject private var store: AppStore
     @State private var searchText = ""
     @State private var showingSettings = false
+    @State private var showingAbout = false
     @State private var showingJoinCallSheet = false
     @State private var showingNewGroupSheet = false
     @State private var showingCallHistory = false
@@ -64,6 +68,7 @@ struct ContentView: View {
             } else {
                 NavigationSplitView {
                     chatListSidebar
+                        .safeAreaInset(edge: .bottom, spacing: 0) { SupportBar() }
                         .safeAreaInset(edge: .top) {
                             VStack(spacing: 0) {
                                 PermissionsBanner()
@@ -142,6 +147,7 @@ struct ContentView: View {
         } message: {
             Text(store.errorBanner ?? "")
         }
+        .sheet(isPresented: $showingAbout) { AboutView() }
         .sheet(isPresented: $showingSettings) {
             NavigationStack {
                 SettingsView()
@@ -187,6 +193,7 @@ struct ContentView: View {
             case .joinCall: showingJoinCallSheet = true
             case .createConference: showingCreateConference = true
             case .settings: showingSettings = true
+            case .about: showingAbout = true
             case .openLink: showingJoinLink = true
             case .quickSwitch: showingQuickSwitch = true
             case .nextChat, .previousChat:

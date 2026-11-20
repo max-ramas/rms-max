@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Maksim Ramzaev. Part of RMS MAKS; see LICENSE.
+
 import Foundation
 
 /// Opcodes the MAX server answered with `proto.opcode` (unknown command). The mobile endpoint closes the socket

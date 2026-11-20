@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Maksim Ramzaev. Part of RMS MAKS; see LICENSE.
+
 import Foundation
 
 /// Comments under channel posts. The official client addresses a post's comment thread by the channel id plus `postId`:

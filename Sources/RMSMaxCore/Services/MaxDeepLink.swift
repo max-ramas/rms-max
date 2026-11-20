@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Maksim Ramzaev. Part of RMS MAKS; see LICENSE.
+
 import Foundation
 
 /// Links the official clients open: `https://max.ru/<path>` and `max://max.ru/<path>` (same path in both).

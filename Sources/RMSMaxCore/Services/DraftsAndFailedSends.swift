@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Maksim Ramzaev. Part of RMS MAKS; see LICENSE.
+
 import Foundation
 
 /// A message that could not be sent: kept on the device (text or the file itself) until the user retries or deletes it.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Maksim Ramzaev. Part of RMS MAKS; see LICENSE.
+
 import Foundation
 
 /// Animated emoji. `Assets` ops 27/28 with `type` ANIMOJI / ANIMOJI_SET (shapes taken from the official web client):
