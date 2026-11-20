@@ -30,10 +30,10 @@ enum NWHTTPSClient {
     }
 
     /// GET with up to 4 redirects.
-    static func get(url: URL, timeout: TimeInterval = 180) async throws -> Response {
+    static func get(url: URL, headers: [String: String] = [:], ipv4Only: Bool = false, timeout: TimeInterval = 180) async throws -> Response {
         var current = url
         for _ in 0..<5 {
-            let r = try await request(method: "GET", url: current, headers: [:], body: Data(), timeout: timeout)
+            let r = try await request(method: "GET", url: current, headers: headers, body: Data(), timeout: timeout, ipv4Only: ipv4Only)
             if [301, 302, 303, 307, 308].contains(r.status), let loc = r.headers["location"], let next = URL(string: loc, relativeTo: current)?.absoluteURL {
                 current = next
                 continue
@@ -47,7 +47,7 @@ enum NWHTTPSClient {
         try await request(method: "POST", url: url, headers: headers, body: body, timeout: timeout)
     }
 
-    private static func request(method: String, url: URL, headers: [String: String], body: Data, timeout: TimeInterval) async throws -> Response {
+    private static func request(method: String, url: URL, headers: [String: String], body: Data, timeout: TimeInterval, ipv4Only: Bool = false) async throws -> Response {
         guard url.scheme?.lowercased() == "https", let host = url.host else { throw ClientError.unsupportedScheme }
         let port = UInt16(url.port ?? 443)
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -55,13 +55,14 @@ enum NWHTTPSClient {
         if target.isEmpty { target = "/" }
         if let q = comps?.percentEncodedQuery, !q.isEmpty { target += "?" + q }
 
-        let conn = try makeConnection(host: host, port: port)
+        let conn = try makeConnection(host: host, port: port, ipv4Only: ipv4Only)
         defer { conn.cancel() }
         let queue = DispatchQueue(label: "dev.rms.maks.upload.tls")
         try await connect(conn, queue: queue)
 
         var head = "\(method) \(target) HTTP/1.1\r\nHost: \(url.port.map { "\(host):\($0)" } ?? host)\r\n"
-        head += "User-Agent: RMS-MAKS\r\nAccept: */*\r\nConnection: close\r\n"
+        if !headers.keys.contains(where: { $0.lowercased() == "user-agent" }) { head += "User-Agent: RMS-MAKS\r\n" }
+        head += "Accept: */*\r\nConnection: close\r\n"
         if method != "GET" { head += "Content-Length: \(body.count)\r\n" }
         for (k, v) in headers { head += "\(k): \(v)\r\n" }
         head += "\r\n"
@@ -85,7 +86,7 @@ enum NWHTTPSClient {
 
     // MARK: - Connection
 
-    private static func makeConnection(host: String, port: UInt16) throws -> NWConnection {
+    private static func makeConnection(host: String, port: UInt16, ipv4Only: Bool = false) throws -> NWConnection {
         let tls = NWProtocolTLS.Options()
         let sec = tls.securityProtocolOptions
         sec_protocol_options_set_min_tls_protocol_version(sec, .TLSv12)
@@ -98,7 +99,9 @@ enum NWHTTPSClient {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
         guard let p = NWEndpoint.Port(rawValue: port) else { throw ClientError.badResponse }
-        return NWConnection(host: NWEndpoint.Host(host), port: p, using: NWParameters(tls: tls, tcp: tcp))
+        let params = NWParameters(tls: tls, tcp: tcp)
+        if ipv4Only, let ip = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options { ip.version = .v4 }
+        return NWConnection(host: NWEndpoint.Host(host), port: p, using: params)
     }
 
     private static func connect(_ conn: NWConnection, queue: DispatchQueue) async throws {

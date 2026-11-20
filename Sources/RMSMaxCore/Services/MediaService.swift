@@ -73,6 +73,55 @@ enum MediaHTTP {
         }
     }
 
+    /// MP4/MOV/3GP («ftyp» at byte 4), WebM/Matroska, Ogg: anything else (an HTML page, a JSON error) is not a video.
+    static func looksLikeVideo(_ d: Data) -> Bool {
+        guard d.count > 12 else { return false }
+        if d[4...7].elementsEqual(Array("ftyp".utf8)) || d[4...7].elementsEqual(Array("moov".utf8)) || d[4...7].elementsEqual(Array("mdat".utf8)) { return true }
+        if d.prefix(4).elementsEqual([0x1A, 0x45, 0xDF, 0xA3]) { return true }
+        return d.prefix(4).elementsEqual(Array("OggS".utf8))
+    }
+
+    static func fileLooksLikeVideo(_ url: URL) -> Bool {
+        guard let h = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? h.close() }
+        return looksLikeVideo((try? h.read(upToCount: 16)) ?? Data())
+    }
+
+    private static let chromeUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+
+    /// OK/VK video URLs are bound to the client that asked for them: `srcAg` (user-agent class) and `srcIp` (address).
+    /// A request from another agent or address is refused with HTTP 400, so the download pretends to be that agent and,
+    /// if it is still refused, retries over IPv4 (the API connection's address family).
+    static func getVideo(_ url: URL) async throws -> Data {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let open: Set<String> = ["pr", "srcAg", "type", "ct", "clientType", "subId"]
+        ProtocolLog.add("video url params: " + items.map { open.contains($0.name) ? "\($0.name)=\($0.value ?? "")" : $0.name }.joined(separator: ","))
+        let ag = items.first { $0.name == "srcAg" }?.value?.uppercased() ?? ""
+        let ua: String
+        switch ag {
+        case "SAFARI": ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+        case "FIREFOX": ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
+        default: ua = chromeUA
+        }
+        var req = URLRequest(url: url)
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        var failure = "?"
+        do {
+            let (data, response) = try await session.data(for: req)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if (200...299).contains(code), looksLikeVideo(data) { return data }
+            failure = "HTTP \(code) \(String(decoding: data.prefix(80), as: UTF8.self))"
+        } catch {
+            failure = "\((error as NSError).code)"
+        }
+        ProtocolLog.add("video download via URLSession refused (\(failure)); retrying over IPv4")
+        let r = try await NWHTTPSClient.get(url: url, headers: ["User-Agent": ua], ipv4Only: true)
+        guard (200...299).contains(r.status), looksLikeVideo(r.body) else {
+            throw MediaError.downloadFailed("HTTP \(r.status) \(String(decoding: r.body.prefix(80), as: UTF8.self))")
+        }
+        return r.body
+    }
+
     static let session: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 60
@@ -228,7 +277,8 @@ extension MaxClient {
             let v = all[k]; let isURL = v?.stringValue?.hasPrefix("http") == true
             return isURL ? "\(k)=url" : k
         }.joined(separator: ","))
-        let order = ["MP4_480", "MP4_720", "MP4_360", "MP4_240", "MP4_144", "MP4_1080", "EXTERNAL", "url", "MP4", "OGG", "MP3", "AUDIO"]
+        // EXTERNAL is a web page (m.ok.ru/video/…), not a file — never a candidate for a download.
+        let order = ["MP4_480", "MP4_720", "MP4_360", "MP4_240", "MP4_144", "MP4_1080", "url", "MP4", "OGG", "MP3", "AUDIO"]
         var out: [(String, URL)] = []
         var seen = Set<String>()
         func add(_ k: String) {
@@ -237,7 +287,7 @@ extension MaxClient {
             out.append((k, u))
         }
         order.forEach(add)
-        for k in all.keys.sorted() where !order.contains(k) && !["HLS", "O_HLS", "DASH", "O_DASH"].contains(k) { add(k) }
+        for k in all.keys.sorted() where !order.contains(k) && !["EXTERNAL", "HLS", "O_HLS", "DASH", "O_DASH"].contains(k) { add(k) }
         guard !out.isEmpty else { throw MediaError.noDownloadURL }
         return out
     }
@@ -542,12 +592,15 @@ extension AppStore {
         case .video:
             guard let videoId = attachment.videoId else { throw MediaError.noDownloadURL }
             let target = MediaCache.url(key: "video_\(videoId)", fileName: "video.mp4")
-            if FileManager.default.fileExists(atPath: target.path) { return target }
+            if FileManager.default.fileExists(atPath: target.path) {
+                if MediaHTTP.fileLooksLikeVideo(target) { return target }
+                try? FileManager.default.removeItem(at: target) // an earlier build cached a web page here
+            }
             let candidates = try await client.videoPlaybackCandidates(chatId: chatId, messageId: messageId, videoId: videoId, token: attachment.token)
             var lastError: Error = MediaError.noDownloadURL
             for (key, url) in candidates {
                 do {
-                    let data = try await MediaHTTP.get(url)
+                    let data = try await MediaHTTP.getVideo(url)
                     try data.write(to: target, options: .atomic)
                     ProtocolLog.add("video \(key) \(url.host ?? "?")\(url.path) \(data.count) B downloaded")
                     return target

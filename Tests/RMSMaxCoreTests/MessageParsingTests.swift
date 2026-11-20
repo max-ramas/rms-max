@@ -267,3 +267,13 @@ final class MuteCacheTests: XCTestCase {
         XCTAssertTrue(UnsupportedOpcodes.contains(241))
     }
 }
+
+final class VideoFileCheckTests: XCTestCase {
+    func testOnlyRealVideoContainersPass() {
+        var mp4 = Data(count: 4); mp4.append(Data("ftypisom".utf8)); mp4.append(Data(count: 20))
+        XCTAssertTrue(MediaHTTP.looksLikeVideo(mp4))
+        XCTAssertTrue(MediaHTTP.looksLikeVideo(Data([0, 0, 0, 0x20] + Array("ftypmp42".utf8) + [0, 0, 0, 0, 0])))
+        XCTAssertFalse(MediaHTTP.looksLikeVideo(Data("<!DOCTYPE html><html>".utf8) + Data(count: 30)), "a web page is not a video")
+        XCTAssertFalse(MediaHTTP.looksLikeVideo(Data("10".utf8)), "the CDN's error body")
+    }
+}

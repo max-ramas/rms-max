@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var showingCallHistory = false
     @State private var showingContacts = false
     @State private var showingQuickSwitch = false
+    @State private var showingCreateConference = false
     @State private var joinLinkInput = ""
     @State private var joinSecureCall = true
     @State private var joinVideoCall = false
@@ -65,6 +66,10 @@ struct ContentView: View {
                             #endif
                         }
                         .navigationTitle("RMS MAKS")
+                        #if os(macOS)
+                        // Wide enough for every toolbar button of the column; narrower, macOS folds the last ones into «»».
+                        .navigationSplitViewColumnWidth(min: 400, ideal: 420, max: 560)
+                        #endif
                         .searchable(text: $searchText, prompt: "Поиск чатов и сообщений")
                         .task(id: searchText) {
                             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -97,12 +102,13 @@ struct ContentView: View {
                                     Label("Контакты", systemImage: "person.crop.circle")
                                 }
                                 .help("Контакты")
-                                Button {
-                                    showingJoinCallSheet = true
+                                Menu {
+                                    Button("Создать конференцию…") { showingCreateConference = true }
+                                    Button("Присоединиться по ссылке…") { showingJoinCallSheet = true }
                                 } label: {
-                                    Label("Звонок по ссылке", systemImage: "video.badge.plus")
+                                    Label("Конференция", systemImage: "video.badge.plus")
                                 }
-                                .help("Звонок по ссылке")
+                                .help("Создать конференцию или присоединиться по ссылке")
                                 Button {
                                     showingSettings = true
                                 } label: {
@@ -180,6 +186,7 @@ struct ContentView: View {
             case .newGroup: showingNewGroupSheet = true
             case .callHistory: showingCallHistory = true
             case .joinCall: showingJoinCallSheet = true
+            case .createConference: showingCreateConference = true
             case .openLink: showingJoinLink = true
             case .quickSwitch: showingQuickSwitch = true
             case .nextChat, .previousChat:
@@ -199,6 +206,7 @@ struct ContentView: View {
         .permissionAlert()
         .sheet(isPresented: $store.updatePromptShown) { UpdateSheet() }
         .sheet(isPresented: $showingQuickSwitch) { QuickSwitcherSheet() }
+        .sheet(isPresented: $showingCreateConference) { CreateConferenceSheet() }
         .sheet(isPresented: $showingContacts) {
             NavigationStack {
                 ContactsView()

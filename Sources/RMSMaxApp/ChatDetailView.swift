@@ -19,6 +19,7 @@ struct ChatDetailView: View {
     @State private var showingPinned = false
     @State private var showingChatSearch = false
     @State private var showingTheme = false
+    @State private var didInitialScroll = false
     @State private var showingCircle = false
     @ObservedObject private var themes = ChatThemeStore.shared
     @State private var pinIndex = 0
@@ -159,9 +160,10 @@ struct ChatDetailView: View {
                 }
                 .onAppear {
                     if let target = store.scrollTargetMessageId {
+                        didInitialScroll = true
                         jump(to: target, proxy: proxy)
-                    } else if let last = messages.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                    } else {
+                        Task { await scrollToBottomInitially(proxy: proxy) }
                     }
                 }
                 .onChange(of: store.scrollTargetMessageId) { _, target in
@@ -357,8 +359,21 @@ struct ChatDetailView: View {
                 Spacer()
             }
             .padding(.vertical, 6)
-            .onAppear { loadOlder(proxy: proxy) }
+            // Older history is loaded only when the user reaches the top later — not while the chat is still being
+            // opened, otherwise the list is prepended and scrolled to the top instead of the newest message.
+            .onAppear { if didInitialScroll { loadOlder(proxy: proxy) } }
         }
+    }
+
+    /// Opens a chat at its newest message: waits for the first messages, scrolls twice (the lazy list has to lay
+    /// the rows out first) and only then lets the «load older» header act.
+    private func scrollToBottomInitially(proxy: ScrollViewProxy) async {
+        for _ in 0..<60 where messages.isEmpty { try? await Task.sleep(nanoseconds: 100_000_000) }
+        if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        didInitialScroll = true
     }
 
     private func loadOlder(proxy: ScrollViewProxy) {

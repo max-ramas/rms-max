@@ -205,3 +205,22 @@ public extension AppStore {
         }
     }
 }
+
+public extension AppStore {
+    /// Creates a conference room like the official client: op 76 `{conversationId}` answers with the `joinLink`
+    /// (op 84 stays as a fallback for the invite link).
+    func createConference() async -> (id: String, link: String)? {
+        let id = UUID().uuidString.lowercased()
+        do {
+            let resp = try await client.sendAndWait(opcode: 76, payload: .object(["conversationId": .string(id)]))
+            if let link = resp.payload["joinLink"]?.stringValue ?? resp.payload["link"]?.stringValue, !link.isEmpty {
+                return (id, link)
+            }
+            if let link = await callInviteLink(conversationId: id) { return (id, link) }
+            return (id, "https://max.ru/joincall/\(id)")
+        } catch {
+            errorBanner = "Не удалось создать звонок: \(error.localizedDescription)"
+            return nil
+        }
+    }
+}
