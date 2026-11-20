@@ -16,6 +16,9 @@ struct ChatDetailView: View {
     @State private var forwardTarget: MaxMessage?
     @State private var complaintTarget: MaxMessage?
     @State private var showingStickers = false
+    @State private var showingPinned = false
+    @State private var showingChatSearch = false
+    @State private var pinIndex = 0
     @State private var showingE2ESettings = false
     @State private var showingInfo = false
     @State private var callSecureByDefault = true
@@ -107,6 +110,7 @@ struct ChatDetailView: View {
                                 isMe: msg.senderId == store.currentAccount?.userId,
                                 senderName: store.contacts[msg.senderId]?.name ?? "Участник",
                                 isGroup: chat.type == .chat,
+                                stats: store.postStats["\(chat.id)_\(msg.id)"],
                                 showsTicks: chat.type == .dialog,
                                 isRead: msg.timeMs <= store.peerReadMark(in: liveChat),
                                 onReply: { replyTarget = msg },
@@ -116,9 +120,10 @@ struct ChatDetailView: View {
                                 onDelete: { forAll in
                                     Task { await store.deleteMessage(chatId: chat.id, messageId: msg.id, forEveryone: forAll) }
                                 },
-                                isPinned: liveChat.pinnedMessageId == msg.id,
+                                isPinned: (store.pinnedByChat[chat.id]?.contains { $0.id == msg.id }) ?? (liveChat.pinnedMessageId == msg.id),
                                 onPin: {
-                                    Task { await store.setPinned(chatId: chat.id, messageId: msg.id, pinned: liveChat.pinnedMessageId != msg.id) }
+                                    let already = (store.pinnedByChat[chat.id]?.contains { $0.id == msg.id }) ?? (liveChat.pinnedMessageId == msg.id)
+                                    Task { await store.setPinned(chatId: chat.id, messageId: msg.id, pinned: !already) }
                                 },
                                 onForward: { forwardTarget = msg },
                                 onComplain: { complaintTarget = msg },
@@ -213,6 +218,18 @@ struct ChatDetailView: View {
             }
         }
         .navigationTitle(store.resolvedChatTitle(chat))
+        .sheet(isPresented: $showingChatSearch) { ChatSearchSheet(chatId: chat.id) }
+        .background {
+            Group {
+                Button("") { replyToLast() }.keyboardShortcut("r", modifiers: .command)
+                Button("") { startRecording() }.keyboardShortcut("r", modifiers: [.command, .shift])
+            }
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
+        #if os(macOS)
+        .onExitCommand { if replyTarget != nil { replyTarget = nil } else { store.selectedChatId = nil } }
+        #endif
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
@@ -220,6 +237,13 @@ struct ChatDetailView: View {
                 } label: {
                     Label("Информация", systemImage: "info.circle")
                 }
+                Button {
+                    showingChatSearch = true
+                } label: {
+                    Label("Поиск в чате", systemImage: "magnifyingglass")
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                .help("Поиск в чате (⌘F)")
                 if chat.type != .channel {
                     Button {
                         let peerId = store.dialogPeerId(for: chat)
@@ -440,11 +464,7 @@ struct ChatDetailView: View {
 
             if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button {
-                    Task {
-                        store.sendTyping(chatId: chat.id, kind: "AUDIO")
-                        do { try await recorder.start() }
-                        catch { store.errorBanner = error.localizedDescription }
-                    }
+                    startRecording()
                 } label: {
                     Image(systemName: "mic.fill").font(.title2)
                 }
@@ -462,6 +482,20 @@ struct ChatDetailView: View {
             }
         }
         .padding(12)
+    }
+
+    private func startRecording() {
+        guard !recorder.isRecording, !store.isBusy else { return }
+        Task {
+            store.sendTyping(chatId: chat.id, kind: "AUDIO")
+            do { try await recorder.start() }
+            catch { store.errorBanner = error.localizedDescription }
+        }
+    }
+
+    /// ⌘R: reply to the last incoming message.
+    private func replyToLast() {
+        if let m = messages.last(where: { $0.senderId != store.currentAccount?.userId }) { replyTarget = m }
     }
 
     /// Clipboard image -> photo attachment; the current draft goes along as the caption.
@@ -501,30 +535,79 @@ struct ChatDetailView: View {
         Task { await store.sendTextMessage(chatId: chat.id, plaintext: text, replyToId: reply) }
     }
 
-    private func pinnedBar(_ messageId: String) -> some View {
-        let text = messages.first(where: { $0.id == messageId })?.displayText ?? "Закреплённое сообщение"
+    private func pinnedBar(_ lastId: String) -> some View {
+        let list = store.pinnedByChat[chat.id] ?? []
+        let ids = list.isEmpty ? [lastId] : list.map(\.id)
+        let idx = min(pinIndex, ids.count - 1)
+        let current = ids[idx]
+        let msg = list.first { $0.id == current } ?? messages.first { $0.id == current }
+        let text = msg?.displayText ?? "Закреплённое сообщение"
         return HStack(spacing: 8) {
             Rectangle().fill(Color.accentColor).frame(width: 3, height: 28)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Закреплено").font(.caption.bold()).foregroundStyle(.tint)
-                Text(text).font(.caption).lineLimit(1)
+                Text(ids.count > 1 ? "Закреплено \(idx + 1) из \(ids.count)" : "Закреплено").font(.caption.bold()).foregroundStyle(.tint)
+                Text(text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)).font(.caption).lineLimit(1)
             }
             Spacer()
+            if ids.count > 1 {
+                Button { showingPinned = true } label: { Image(systemName: "list.bullet") }
+                    .buttonStyle(.plain)
+                    .help("Все закреплённые")
+            }
             Button {
-                Task { await store.setPinned(chatId: chat.id, messageId: messageId, pinned: false) }
+                Task { await store.setPinned(chatId: chat.id, messageId: current, pinned: false); pinIndex = 0 }
             } label: { Image(systemName: "pin.slash") }
             .buttonStyle(.plain)
-            .help("Открепить")
+            .help("Открепить это сообщение")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(Color.accentColor.opacity(0.06))
         .contentShape(Rectangle())
         .onTapGesture {
-            if let msg = messages.first(where: { $0.id == messageId }) {
-                Task { await store.openMessage(chatId: chat.id, message: msg) }
-            }
+            if let msg { Task { await store.openMessage(chatId: chat.id, message: msg) } }
+            if ids.count > 1 { pinIndex = (idx + 1) % ids.count } // next tap shows the next pin, like the official client
         }
+        .sheet(isPresented: $showingPinned) { PinnedMessagesSheet(chat: liveChat) }
+    }
+}
+
+/// All pinned messages of a chat: jump to one, unpin one or all (op 241 / 242).
+private struct PinnedMessagesSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let chat: MaxChat
+    @State private var confirmAll = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(store.pinnedByChat[chat.id] ?? []) { m in
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(store.contacts[m.senderId]?.name ?? "Участник").font(.caption.bold()).foregroundStyle(.secondary)
+                            Text(m.displayText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)).lineLimit(3)
+                        }
+                        Spacer()
+                        Button { Task { await store.setPinned(chatId: chat.id, messageId: m.id, pinned: false) } } label: { Image(systemName: "pin.slash") }
+                            .buttonStyle(.borderless)
+                            .help("Открепить")
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { Task { await store.openMessage(chatId: chat.id, message: m); dismiss() } }
+                }
+            }
+            .navigationTitle("Закреплённые (\(store.pinnedByChat[chat.id]?.count ?? 0))")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Готово") { dismiss() } }
+                ToolbarItem(placement: .destructiveAction) { Button("Открепить все…") { confirmAll = true } }
+            }
+            .confirmationDialog("Открепить все сообщения?", isPresented: $confirmAll, titleVisibility: .visible) {
+                Button("Открепить все", role: .destructive) { Task { await store.unpinAll(chatId: chat.id); dismiss() } }
+                Button("Отмена", role: .cancel) {}
+            } message: { Text("Они будут откреплены для всех участников.") }
+        }
+        .macSheet(width: 460, height: 460)
     }
 }
 
@@ -534,6 +617,7 @@ private struct MessageBubbleView: View {
     let isMe: Bool
     let senderName: String
     let isGroup: Bool
+    var stats: PostStats? = nil
     var showsTicks = false
     var isRead = false
     let onReply: () -> Void
@@ -620,6 +704,14 @@ private struct MessageBubbleView: View {
                     Text(Self.formatter.string(from: message.date))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                    if let stats {
+                        Label(AppStore.compactCount(stats.views), systemImage: "eye")
+                            .font(.caption2).foregroundStyle(.secondary).help("Просмотры")
+                        if stats.forwards > 0 {
+                            Label(AppStore.compactCount(stats.forwards), systemImage: "arrowshape.turn.up.right")
+                                .font(.caption2).foregroundStyle(.secondary).help("Пересылки")
+                        }
+                    }
                     if isMe && showsTicks {
                         Text(isRead ? "✓✓" : "✓")
                             .font(.caption2.bold())

@@ -708,6 +708,7 @@ public struct MaxChat: Codable, Sendable, Equatable, Identifiable {
     public var participants: [Int64: Int64]
     public var lastMessage: MaxMessage?
     public var pinnedMessageId: String?
+    public var pinnedCount: Int = 0
     public var activeCall: ChatActiveCall? = nil
     // Group info (chat schema): owner, admins, private link, description, counters, options.
     public var ownerId: Int64? = nil

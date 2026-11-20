@@ -6,7 +6,7 @@ import AppKit
 
 /// Window-level actions triggered from the menu bar, the menu-bar extra or keyboard shortcuts.
 enum AppAction: String {
-    case contacts, newGroup, callHistory, joinCall, openLink, checkUpdates
+    case contacts, newGroup, callHistory, joinCall, openLink, checkUpdates, quickSwitch, nextChat, previousChat
 
     static let notification = Notification.Name("RMSMaksAppAction")
 
@@ -29,6 +29,14 @@ struct RMSMaksCommands: Commands {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Открыть ссылку MAX…") { AppAction.openLink.post() }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
+        }
+        CommandMenu("Чаты") {
+            Button("Быстрый переход…") { AppAction.quickSwitch.post() }
+                .keyboardShortcut("k", modifiers: .command)
+            Button("Следующий чат") { AppAction.nextChat.post() }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+            Button("Предыдущий чат") { AppAction.previousChat.post() }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
         }
         CommandMenu("Контакты") {
             Button("Контакты") { AppAction.contacts.post() }

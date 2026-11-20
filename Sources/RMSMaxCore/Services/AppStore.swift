@@ -73,6 +73,10 @@ public final class AppStore: ObservableObject {
     @Published public internal(set) var storyPreviews: [StoryPreview] = []
     /// Who is typing right now: chatId -> userId -> kind (TEXT | AUDIO | PHOTO | VIDEO | VIDEO_MSG | FILE | STICKER).
     @Published public internal(set) var typingByChat: [Int64: [Int64: String]] = [:]
+    /// All pinned messages of a chat, newest first (op 241); the chat itself only carries the newest one.
+    @Published public internal(set) var pinnedByChat: [Int64: [MaxMessage]] = [:]
+    /// Views / forwards of channel posts (op 74), keyed "chatId_messageId".
+    @Published public internal(set) var postStats: [String: PostStats] = [:]
     var typingTokens: [String: Int] = [:]
     var lastTypingSent: [Int64: Date] = [:]
     static let sendTypingKey = "rmsmaks.privacy.sendTyping"
@@ -86,6 +90,8 @@ public final class AppStore: ObservableObject {
     /// Voice transcriptions by "chatId:messageId".
     @Published public internal(set) var transcriptions: [String: String] = [:]
     @Published public var selectedFolderId: String? = nil
+    /// The server's own "all chats" folder: it holds the pinned chats of the main list (`favorites`).
+    @Published public internal(set) var serverAllFolder: ChatFolder?
     @Published public internal(set) var stickerCache: [Int64: Sticker] = [:]
     var complaintReasonCache: [Int: [ComplaintReason]] = [:]
     var callHistorySync: Int64 = 0
@@ -680,6 +686,8 @@ public final class AppStore: ObservableObject {
             resolved.sort { $0.timeMs < $1.timeMs }
             messagesByChat[chatId] = resolved
             Task { await self.ensureContacts(resolved.map(\.senderId)) }
+            Task { await self.loadPinned(chatId: chatId) }
+            Task { await self.loadPostStats(chatId: chatId, messages: resolved) }
             if let last = resolved.last, let msgId = Int64(last.id) {
                 _ = try? await client.readMessage(chatId: chatId, messageId: msgId, markMs: last.timeMs)
                 if let idx = chats.firstIndex(where: { $0.id == chatId }) {

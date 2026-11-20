@@ -13,30 +13,72 @@ public extension AppStore {
         return .object(["type": .int(type), "primaryId": .int(chat.id)])
     }
 
-    /// Mobile protocol (as maxplus/rumax): op 55 `{chatId, pinMessageId, notifyPin}`; `pinMessageId: "0"` unpins.
-    /// (op 242 is the web client's command and is unknown to the mobile server.)
+    /// Desktop identity: op 242 PinnedMessages.Update `{chatId(typed), action 0 pin | 1 unpin | 2 unpin all, messageIds, forMe, notify}`
+    /// (several messages can be pinned). Android identity: op 55 `{chatId, pinMessageId, notifyPin}` (one pin).
     func setPinned(chatId: Int64, messageId: String, pinned: Bool, notify: Bool = true) async {
-        guard chats.contains(where: { $0.id == chatId }) else { return }
+        guard let chat = chats.first(where: { $0.id == chatId }) else { return }
         do {
-            let resp = try await client.sendAndWait(opcode: 55, payload: .object([
-                "chatId": .int(chatId),
-                "pinMessageId": .string(pinned ? messageId : "0"),
-                "notifyPin": .bool(pinned && notify),
-            ]))
-            if let raw = resp.payload["chat"] { await applyChatUpdate(raw) }
-            if let i = chats.firstIndex(where: { $0.id == chatId }) { chats[i].pinnedMessageId = pinned ? messageId : nil }
+            if isDesktopSession, let mid = Int64(messageId) {
+                var payload: [String: JSONValue] = [
+                    "chatId": Self.typedChatId(chat), "action": .int(pinned ? 0 : 1),
+                    "messageIds": .array([.int(mid)]), "notify": .bool(notify),
+                ]
+                if pinned { payload["forMe"] = .bool(false) }
+                let resp = try await client.sendAndWait(opcode: 242, payload: .object(payload))
+                applyPinnedState(resp.payload["pinnedMessagesState"], chatId: chatId, fallback: pinned ? messageId : nil)
+            } else {
+                let resp = try await client.sendAndWait(opcode: 55, payload: .object([
+                    "chatId": .int(chatId), "pinMessageId": .string(pinned ? messageId : "0"), "notifyPin": .bool(pinned && notify),
+                ]))
+                if let raw = resp.payload["chat"] { await applyChatUpdate(raw) }
+                if let i = chats.firstIndex(where: { $0.id == chatId }) { chats[i].pinnedMessageId = pinned ? messageId : nil }
+            }
+            await loadPinned(chatId: chatId)
         } catch {
             errorBanner = "Не удалось \(pinned ? "закрепить" : "открепить"): \(error.localizedDescription)"
         }
     }
 
-    /// Push 243 / reply of 242 — the newest pinned message of a chat.
+    /// op 242 action 2.
+    func unpinAll(chatId: Int64) async {
+        guard let chat = chats.first(where: { $0.id == chatId }) else { return }
+        do {
+            let resp = try await client.sendAndWait(opcode: 242, payload: .object(["chatId": Self.typedChatId(chat), "action": .int(2)]))
+            applyPinnedState(resp.payload["pinnedMessagesState"], chatId: chatId, fallback: nil)
+            pinnedByChat[chatId] = []
+        } catch {
+            errorBanner = "Не удалось открепить: \(error.localizedDescription)"
+        }
+    }
+
+    /// op 241 PinnedMessages.Get `{chatId(typed), from, backward}` -> `{pinnedMessages: [...]}`.
+    func loadPinned(chatId: Int64) async {
+        guard let chat = chats.first(where: { $0.id == chatId }), chat.pinnedMessageId != nil || pinnedByChat[chatId] != nil else { return }
+        guard isDesktopSession else {
+            if let id = chat.pinnedMessageId, let m = messagesByChat[chatId]?.first(where: { $0.id == id }) { pinnedByChat[chatId] = [m] }
+            return
+        }
+        do {
+            let resp = try await client.sendAndWait(opcode: 241, payload: .object([
+                "chatId": Self.typedChatId(chat), "from": .int(Int64(Date().timeIntervalSince1970 * 1000) + 60_000), "backward": .int(50),
+            ]))
+            let list = (resp.payload["pinnedMessages"]?.arrayValue ?? []).map { parseMessage($0, chatId: chatId) }
+            pinnedByChat[chatId] = list.sorted { $0.timeMs > $1.timeMs }
+            if list.isEmpty, let i = chats.firstIndex(where: { $0.id == chatId }) { chats[i].pinnedMessageId = nil }
+        } catch {
+            ProtocolLog.add("pinned list op=241 failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Push 243 / reply of 242 — pinned state of a chat: `{chatId, totalPinnedMessagesCount, lastPinnedMessageId, ...}`.
     func applyPinnedState(_ state: JSONValue?, chatId: Int64? = nil, fallback: String? = nil) {
-        let id = chatId ?? state?["chatId"]?["primaryId"]?.int64Value
+        let id = chatId ?? state?["chatId"]?["primaryId"]?.int64Value ?? state?["chatId"]?.int64Value
         guard let id, let i = chats.firstIndex(where: { $0.id == id }) else { return }
         if let state {
             let total = state["totalPinnedMessagesCount"]?.int64Value ?? 0
             chats[i].pinnedMessageId = total > 0 ? state["lastPinnedMessageId"]?.stringValue : nil
+            chats[i].pinnedCount = Int(total)
+            if total == 0 { pinnedByChat[id] = [] } else { Task { await loadPinned(chatId: id) } }
         } else {
             chats[i].pinnedMessageId = fallback
         }

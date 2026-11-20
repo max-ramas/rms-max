@@ -169,3 +169,39 @@ public extension AppStore {
         return link
     }
 }
+
+public extension AppStore {
+    /// op 73 Search.Message `{chatId, query, count, marker}` -> `{result: [{message, highlights}], marker}`.
+    /// Encrypted (E2E) messages are not searchable on the server, so the decrypted ones loaded locally are matched too.
+    func searchInChat(chatId: Int64, query raw: String, marker: Int64? = nil) async -> (hits: [MessageSearchHit], next: Int64?) {
+        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else { return ([], nil) }
+        var hits: [MessageSearchHit] = []
+        var seen = Set<String>()
+        if marker == nil {
+            let needle = query.lowercased()
+            for m in messagesByChat[chatId] ?? [] where m.decrypted?.isEncrypted == true && m.decrypted?.error == nil {
+                if m.bodyText.lowercased().contains(needle) {
+                    hits.append(MessageSearchHit(chatId: chatId, message: m, snippet: m.bodyText, isLocalE2E: true))
+                    seen.insert(m.id)
+                }
+            }
+        }
+        var payload: [String: JSONValue] = ["chatId": .int(chatId), "query": .string(query), "count": .int(30)]
+        if let marker { payload["marker"] = .int(marker) }
+        do {
+            let resp = try await client.sendAndWait(opcode: 73, payload: .object(payload))
+            for item in resp.payload["result"]?.arrayValue ?? [] {
+                guard let raw = item["message"] else { continue }
+                let parsed = parseMessage(raw, chatId: chatId)
+                guard seen.insert(parsed.id).inserted else { continue }
+                let msg = await decryptAndHandleControl(message: parsed, chatId: chatId)
+                hits.append(MessageSearchHit(chatId: chatId, message: msg, snippet: msg.displayText, isLocalE2E: false))
+            }
+            return (hits, resp.payload["marker"]?.int64Value)
+        } catch {
+            ProtocolLog.add("chat search op=73 failed: \(error.localizedDescription)")
+            return (hits, nil)
+        }
+    }
+}

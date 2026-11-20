@@ -115,3 +115,35 @@ final class TypingAndReadTests: XCTestCase {
         XCTAssertEqual(chat().newMessages, 3, "the peer's mark must not clear my unread counter")
     }
 }
+
+@MainActor
+final class PinsAndFoldersTests: XCTestCase {
+    private func chat(_ id: Int64) -> MaxChat {
+        MaxChat(id: id, type: .dialog, title: "", avatarURL: nil, lastEventTime: id, newMessages: 0,
+                dontDisturbUntil: 0, participants: [:], lastMessage: nil, pinnedMessageId: nil)
+    }
+
+    func testFavoritesAreParsedAndPinnedGoFirst() {
+        let store = AppStore()
+        store.applyFolders(.object(["folders": .array([
+            .object(["id": .string("all.chat.folder"), "title": .string("Все"), "favorites": .array([.int(3), .int(1)])]),
+            .object(["id": .string("f1"), "title": .string("Работа"), "include": .array([.int(2)]), "favorites": .array([.int(2)])]),
+        ])]))
+        XCTAssertEqual(store.serverAllFolder?.favorites, [3, 1])
+        XCTAssertEqual(store.folders.map(\.id), ["f1"], "the server «all» folder stays out of the tab bar")
+        XCTAssertEqual(store.folders.first?.favorites, [2])
+        let ordered = store.withPinnedFirst([chat(5), chat(1), chat(3), chat(2)])
+        XCTAssertEqual(ordered.map(\.id), [3, 1, 5, 2], "pinned first in pin order, then the rest")
+        XCTAssertTrue(store.isChatPinned(3))
+        XCTAssertFalse(store.isChatPinned(5))
+    }
+
+    func testPinnedStatePushKeepsCount() {
+        let store = AppStore()
+        store.chats = [chat(10)]
+        store.applyPinnedState(.object(["chatId": .object(["type": .int(0), "primaryId": .int(10)]),
+                                        "totalPinnedMessagesCount": .int(0)]))
+        XCTAssertNil(store.chats[0].pinnedMessageId)
+        XCTAssertEqual(store.chats[0].pinnedCount, 0)
+    }
+}

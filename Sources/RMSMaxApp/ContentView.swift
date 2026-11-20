@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var showingNewGroupSheet = false
     @State private var showingCallHistory = false
     @State private var showingContacts = false
+    @State private var showingQuickSwitch = false
     @State private var joinLinkInput = ""
     @State private var joinSecureCall = true
     @State private var joinVideoCall = false
@@ -22,8 +23,8 @@ struct ContentView: View {
     @State private var showingJoinLink = false
 
     private var folderChats: [MaxChat] {
-        guard let id = store.selectedFolderId, let f = store.folders.first(where: { $0.id == id }) else { return store.chats }
-        return store.chats(in: f)
+        guard let id = store.selectedFolderId, let f = store.folders.first(where: { $0.id == id }) else { return store.withPinnedFirst(store.chats) }
+        return store.withPinnedFirst(store.chats(in: f))
     }
 
     var filteredChats: [MaxChat] {
@@ -179,6 +180,13 @@ struct ContentView: View {
             case .callHistory: showingCallHistory = true
             case .joinCall: showingJoinCallSheet = true
             case .openLink: showingJoinLink = true
+            case .quickSwitch: showingQuickSwitch = true
+            case .nextChat, .previousChat:
+                let list = store.chats.sorted { $0.lastEventTime > $1.lastEventTime }
+                guard !list.isEmpty else { break }
+                let cur = list.firstIndex { $0.id == store.selectedChatId } ?? -1
+                let step = AppAction(rawValue: note.object as? String ?? "") == .nextChat ? 1 : -1
+                store.selectedChatId = list[(cur + step + list.count) % list.count].id
             case .checkUpdates:
                 Task {
                     if store.availableUpdate == nil { await store.checkForUpdates(manual: true) }
@@ -188,6 +196,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $store.updatePromptShown) { UpdateSheet() }
+        .sheet(isPresented: $showingQuickSwitch) { QuickSwitcherSheet() }
         .sheet(isPresented: $showingContacts) {
             NavigationStack {
                 ContactsView()
@@ -411,6 +420,9 @@ private struct ChatRowView: View {
 
             Spacer()
 
+            if store.isChatPinned(chat.id) {
+                Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
+            }
             if chat.isMuted {
                 Image(systemName: "bell.slash.fill").font(.caption2).foregroundStyle(.secondary)
             }
@@ -431,6 +443,20 @@ private struct ChatRowView: View {
             }
             Button(chat.isMuted ? "Включить уведомления" : "Отключить уведомления") {
                 Task { await store.setChatMuted(chat.id, muted: !chat.isMuted) }
+            }
+            Button(store.isChatPinned(chat.id) ? "Открепить чат" : "Закрепить чат") {
+                Task { await store.togglePinChat(chat.id) }
+            }
+            if !store.folders.isEmpty {
+                Menu("В папку") {
+                    ForEach(store.folders) { f in
+                        Button {
+                            Task { await store.toggleChat(chat.id, in: f) }
+                        } label: {
+                            if store.isChat(chat.id, in: f) { Label(f.title, systemImage: "checkmark") } else { Text(f.title) }
+                        }
+                    }
+                }
             }
             if chat.type == .dialog, let pid = store.dialogPeerId(for: chat) {
                 Button("Профиль") { profileFor = pid }

@@ -9,6 +9,8 @@ public struct ChatFolder: Identifiable, Equatable, Sendable {
     public var exclude: [Int64]
     public var filters: [Int]
     public var options: [Int]
+    /// Pinned chats of this folder, in display order (`favorites`).
+    public var favorites: [Int64] = []
 
     /// Official filter ids (subset we evaluate locally).
     public enum Filter: Int, CaseIterable, Sendable {
@@ -53,6 +55,7 @@ public struct ChatFolder: Identifiable, Equatable, Sendable {
             filters: (v["filters"]?.arrayValue ?? []).compactMap { $0.int64Value.map(Int.init) },
             options: (v["options"]?.arrayValue ?? []).compactMap { $0.int64Value.map(Int.init) }
         )
+        favorites = (v["favorites"]?.arrayValue ?? []).compactMap(\.int64Value)
     }
 }
 
@@ -90,9 +93,12 @@ public extension AppStore {
     internal func applyFolders(_ p: JSONValue) {
         guard let list = p["folders"]?.arrayValue else { return }
         // The server's own "all chats" folder duplicates our «Все» tab.
-        var parsed = list.compactMap(ChatFolder.init).filter {
-            !($0.include.isEmpty && $0.filters.isEmpty && ($0.id.lowercased().contains("all") || $0.title.lowercased() == "все"))
+        let isAll: (ChatFolder) -> Bool = {
+            $0.include.isEmpty && $0.filters.isEmpty && ($0.id.lowercased().contains("all") || $0.title.lowercased() == "все")
         }
+        let all = list.compactMap(ChatFolder.init)
+        serverAllFolder = all.first(where: isAll)
+        var parsed = all.filter { !isAll($0) }
         if let order = p["foldersOrder"]?.arrayValue?.compactMap(\.stringValue), !order.isEmpty {
             parsed.sort { (order.firstIndex(of: $0.id) ?? .max) < (order.firstIndex(of: $1.id) ?? .max) }
         }
@@ -105,7 +111,7 @@ public extension AppStore {
             "include": .array(f.include.map { .int($0) }),
             "filters": .array(f.filters.map { .int(Int64($0)) }),
             "options": .array(f.options.map { .int(Int64($0)) }),
-            "favorites": .array([]),
+            "favorites": .array(f.favorites.map { .int($0) }),
         ]
         if let e = f.emoji { payload["emoji"] = .string(e) }
         do {
