@@ -38,11 +38,34 @@ struct ChatDetailView: View {
     /// Live chat state (the passed-in `chat` is a snapshot).
     private var liveChat: MaxChat { store.chats.first(where: { $0.id == chat.id }) ?? chat }
 
+    /// «Иван печатает…» / «в сети» / «был(а) 5 мин назад» / «12 участников».
+    @ViewBuilder
+    private var statusLine: some View {
+        let typing = store.typingText(chatId: chat.id)
+        let text: String? = typing ?? {
+            if liveChat.type == .dialog, let pid = store.dialogPeerId(for: liveChat) {
+                return store.contacts[pid]?.isBot == true ? "бот" : store.presence[pid]?.label
+            }
+            return liveChat.participantsCount.map { liveChat.type == .channel ? "\($0) подписчиков" : "\($0) участников" }
+        }()
+        if let text {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(typing != nil || store.presence[store.dialogPeerId(for: liveChat) ?? 0]?.isOnline == true ? Color.accentColor : .secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14).padding(.vertical, 3)
+                .background(Color.secondary.opacity(0.05))
+                .animation(.easeInOut(duration: 0.15), value: typing)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let call = liveChat.activeCall, store.activeCall.conversationId != call.conversationId {
                 activeCallBanner(call)
             }
+
+            statusLine
 
             if let pinnedId = liveChat.pinnedMessageId {
                 pinnedBar(pinnedId)
@@ -84,6 +107,8 @@ struct ChatDetailView: View {
                                 isMe: msg.senderId == store.currentAccount?.userId,
                                 senderName: store.contacts[msg.senderId]?.name ?? "Участник",
                                 isGroup: chat.type == .chat,
+                                showsTicks: chat.type == .dialog,
+                                isRead: msg.timeMs <= store.peerReadMark(in: liveChat),
                                 onReply: { replyTarget = msg },
                                 onReact: { emoji in
                                     Task { await store.toggleReaction(chatId: chat.id, messageId: msg.id, emoji: emoji) }
@@ -377,14 +402,17 @@ struct ChatDetailView: View {
                 Image(systemName: "face.smiling").font(.title3)
             }
             .buttonStyle(.plain)
-            .help(settings.isActive ? "Стикеры (отправляются без шифрования)" : "Стикеры")
+            .help(settings.isActive ? "Эмодзи и стикеры (стикеры отправляются без шифрования)" : "Эмодзи и стикеры")
             .popover(isPresented: $showingStickers) {
-                StickerPicker { sticker in
-                    showingStickers = false
-                    let reply = replyTarget?.id
-                    replyTarget = nil
-                    Task { await store.sendSticker(sticker, chatId: chat.id, replyTo: reply) }
-                }
+                EmojiStickerPanel(
+                    onEmoji: { draftText += $0 },
+                    onSticker: { sticker in
+                        showingStickers = false
+                        let reply = replyTarget?.id
+                        replyTarget = nil
+                        Task { await store.sendSticker(sticker, chatId: chat.id, replyTo: reply) }
+                    }
+                )
             }
 
             TextField(
@@ -396,6 +424,9 @@ struct ChatDetailView: View {
             .textFieldStyle(.roundedBorder)
             .onSubmit { send() }
             .pasteImageHandler { sendPasted($0) }
+            .onChange(of: draftText) { old, new in
+                if new.count > old.count, !new.trimmingCharacters(in: .whitespaces).isEmpty { store.sendTyping(chatId: chat.id) }
+            }
 
             #if os(iOS)
             if UIPasteboard.general.hasImages {
@@ -410,6 +441,7 @@ struct ChatDetailView: View {
             if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button {
                     Task {
+                        store.sendTyping(chatId: chat.id, kind: "AUDIO")
                         do { try await recorder.start() }
                         catch { store.errorBanner = error.localizedDescription }
                     }
@@ -502,6 +534,8 @@ private struct MessageBubbleView: View {
     let isMe: Bool
     let senderName: String
     let isGroup: Bool
+    var showsTicks = false
+    var isRead = false
     let onReply: () -> Void
     let onReact: (String) -> Void
     let onDelete: (_ forEveryone: Bool) -> Void
@@ -586,6 +620,12 @@ private struct MessageBubbleView: View {
                     Text(Self.formatter.string(from: message.date))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                    if isMe && showsTicks {
+                        Text(isRead ? "✓✓" : "✓")
+                            .font(.caption2.bold())
+                            .foregroundStyle(isRead ? Color.accentColor : .secondary)
+                            .help(isRead ? "Прочитано" : "Доставлено")
+                    }
                 }
 
                 if !message.reactions.isEmpty {

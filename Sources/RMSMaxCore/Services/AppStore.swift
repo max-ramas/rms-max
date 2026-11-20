@@ -71,6 +71,11 @@ public final class AppStore: ObservableObject {
     @Published public internal(set) var stickerPacks: [StickerPack] = []
     @Published public internal(set) var folders: [ChatFolder] = []
     @Published public internal(set) var storyPreviews: [StoryPreview] = []
+    /// Who is typing right now: chatId -> userId -> kind (TEXT | AUDIO | PHOTO | VIDEO | VIDEO_MSG | FILE | STICKER).
+    @Published public internal(set) var typingByChat: [Int64: [Int64: String]] = [:]
+    var typingTokens: [String: Int] = [:]
+    var lastTypingSent: [Int64: Date] = [:]
+    static let sendTypingKey = "rmsmaks.privacy.sendTyping"
     @Published public internal(set) var availableUpdate: AvailableUpdate?
     @Published public internal(set) var updateStatus: String?
     @Published public internal(set) var isInstallingUpdate = false
@@ -624,12 +629,10 @@ public final class AppStore: ObservableObject {
             applyFolders(resp.payload)
         case 293:
             applyTranscription(resp.payload)
+        case 129:
+            applyTypingPush(resp.payload)
         case 130:
-            if let cid = resp.payload["chatId"]?.int64Value,
-               let idx = chats.firstIndex(where: { $0.id == cid }),
-               resp.payload["setAsUnread"]?.boolValue != true {
-                chats[idx].newMessages = 0
-            }
+            applyReadMarkPush(resp.payload)
         default:
             break
         }

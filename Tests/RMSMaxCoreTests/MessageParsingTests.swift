@@ -86,3 +86,32 @@ final class DesktopIdentityTests: XCTestCase {
         XCTAssertFalse(MaxIdentity.generateMobile().isDesktop)
     }
 }
+
+@MainActor
+final class TypingAndReadTests: XCTestCase {
+    private func dialog(_ id: Int64, me: Int64, peer: Int64) -> MaxChat {
+        MaxChat(id: id, type: .dialog, title: "", avatarURL: nil, lastEventTime: 0, newMessages: 3,
+                dontDisturbUntil: 0, participants: [me: 0, peer: 0], lastMessage: nil, pinnedMessageId: nil)
+    }
+
+    func testTypingPushShowsAndKinds() {
+        let store = AppStore()
+        store.chats = [dialog(10, me: 1, peer: 2)]
+        XCTAssertNil(store.typingText(chatId: 10))
+        store.applyTypingPush(.object(["chatId": .int(10), "userId": .int(2), "type": .string("TEXT")]))
+        XCTAssertEqual(store.typingText(chatId: 10), "печатает…")
+        store.applyTypingPush(.object(["chatId": .int(10), "userId": .int(2), "type": .string("AUDIO")]))
+        XCTAssertEqual(store.typingText(chatId: 10), "записывает голосовое…")
+    }
+
+    func testReadMarkOfPeerOnlyMovesForward() {
+        let store = AppStore()
+        store.chats = [dialog(10, me: 1, peer: 2)]
+        let chat = { store.chats[0] }
+        store.applyReadMarkPush(.object(["chatId": .int(10), "userId": .int(2), "mark": .int(5000)]))
+        XCTAssertEqual(chat().participants[2], 5000)
+        store.applyReadMarkPush(.object(["chatId": .int(10), "userId": .int(2), "mark": .int(4000)]))
+        XCTAssertEqual(chat().participants[2], 5000)
+        XCTAssertEqual(chat().newMessages, 3, "the peer's mark must not clear my unread counter")
+    }
+}

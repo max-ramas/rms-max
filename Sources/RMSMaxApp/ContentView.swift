@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 import RMSMaxCore
 
 struct ContentView: View {
@@ -364,6 +369,9 @@ private struct SearchHitRow: View {
 private struct ChatRowView: View {
     @EnvironmentObject private var store: AppStore
     let chat: MaxChat
+    enum Confirm { case clear, delete }
+    @State private var confirm: Confirm?
+    @State private var profileFor: Int64?
 
     var body: some View {
         let settings = store.chatSettingsByChat[chat.id]
@@ -388,7 +396,12 @@ private struct ChatRowView: View {
                             .foregroundStyle(.green)
                     }
                 }
-                if let last = chat.lastMessage {
+                if let typing = store.typingText(chatId: chat.id) {
+                    Text(typing)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
+                } else if let last = chat.lastMessage {
                     Text(last.displayText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -398,6 +411,9 @@ private struct ChatRowView: View {
 
             Spacer()
 
+            if chat.isMuted {
+                Image(systemName: "bell.slash.fill").font(.caption2).foregroundStyle(.secondary)
+            }
             if chat.newMessages > 0 {
                 Text("\(chat.newMessages)")
                     .font(.caption2.bold())
@@ -408,5 +424,59 @@ private struct ChatRowView: View {
             }
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .contextMenu {
+            if chat.newMessages > 0 {
+                Button("Отметить прочитанным") { Task { await store.markChatRead(chat.id) } }
+            }
+            Button(chat.isMuted ? "Включить уведомления" : "Отключить уведомления") {
+                Task { await store.setChatMuted(chat.id, muted: !chat.isMuted) }
+            }
+            if chat.type == .dialog, let pid = store.dialogPeerId(for: chat) {
+                Button("Профиль") { profileFor = pid }
+            }
+            if let link = chat.link, !link.isEmpty {
+                Button("Скопировать ссылку") { copyChatLink(link) }
+            }
+            Divider()
+            Button("Очистить историю…", role: .destructive) { confirm = .clear }
+            Button(chat.type == .dialog ? "Удалить чат…" : "Удалить и покинуть…", role: .destructive) { confirm = .delete }
+        }
+        .sheet(item: Binding(get: { profileFor.map(RowUserBox.init) }, set: { profileFor = $0?.id })) { box in
+            NavigationStack {
+                UserProfileView(userId: box.id, showsMessageButton: false)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Готово") { profileFor = nil } } }
+            }
+            .macSheet(width: 440, height: 560)
+        }
+        .confirmationDialog(confirm == .clear ? "Очистить историю?" : "Удалить чат?",
+                            isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
+                            titleVisibility: .visible) {
+            if confirm == .clear {
+                Button("Только у меня", role: .destructive) { Task { await store.clearHistory(chatId: chat.id, forAll: false) } }
+                if chat.type == .dialog {
+                    Button("У меня и у собеседника", role: .destructive) { Task { await store.clearHistory(chatId: chat.id, forAll: true) } }
+                }
+            } else {
+                Button("Удалить у меня", role: .destructive) { Task { await store.deleteChat(chatId: chat.id, forAll: false) } }
+                if chat.type == .dialog {
+                    Button("Удалить у обоих", role: .destructive) { Task { await store.deleteChat(chatId: chat.id, forAll: true) } }
+                }
+            }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Это нельзя отменить.")
+        }
+    }
+
+    private func copyChatLink(_ link: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(link, forType: .string)
+        #else
+        UIPasteboard.general.string = link
+        #endif
     }
 }
+
+private struct RowUserBox: Identifiable { let id: Int64 }

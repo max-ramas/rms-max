@@ -105,6 +105,14 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Сообщать, что я печатаю", isOn: Binding(get: { store.sendsTyping }, set: { store.sendsTyping = $0 }))
+            } header: {
+                Text("Приватность чатов")
+            } footer: {
+                Text("Собеседник видит «печатает…», пока вы набираете текст. Если выключить, ничего не отправляется (как у официального клиента при скрытом статусе).")
+            }
+
+            Section {
                 Toggle("Превью видео YouTube", isOn: $youtubePreviews)
             } header: {
                 Text("Ссылки")
