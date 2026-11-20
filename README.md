@@ -6,12 +6,12 @@
 
 | Платформа | Файл | Ссылка |
 | --- | --- | --- |
-| macOS | DMG, подписан Developer ID | https://update.rms-ds.com/get/rms-maks/dmg |
+| macOS | DMG, подписан Developer ID и нотаризован Apple | https://update.rms-ds.com/get/rms-maks/dmg |
 | iPhone / iPad | IPA без подписи (SideStore / AltStore) | https://update.rms-ds.com/get/rms-maks/ipa |
 
 Ссылки всегда ведут на последнюю стабильную версию. Все версии и примечания к выпуску: https://update.rms-ds.com/v1/rms-maks/releases. Релизы подписаны ключом minisign RMS; на GitHub они не публикуются.
 
-**macOS.** Откройте DMG и перетащите RMS MAKS в «Программы». Сборка не нотаризована: при первом запуске нажмите правой кнопкой → «Открыть».
+**macOS.** Откройте DMG и перетащите RMS MAKS в «Программы». Приложение нотаризовано Apple и открывается обычным двойным щелчком.
 
 **iPhone / iPad.** Установка через SideStore — пошагово в [ipa-install.md](ipa-install.md). Приложение переподписывается на устройстве, Apple-аккаунт разработчика не нужен.
 
@@ -49,5 +49,6 @@ xcodebuild -project RMSMax.xcodeproj -scheme RMSMax_iOS -configuration Release -
 ## Выпуск версии
 
 1. Поднять `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` в `project.yml`, собрать DMG и IPA локально.
-2. Подписать манифест `rms-release manifest` (ключ `release-key`), проверить `rms-release verify --check-artifacts`.
-3. Выложить на сервер обновлений по скрипту из `deploy-repo` (`uc-step14-rms-maks-product.sh` — образец: копия конфига, раскладка релиза, проверка здоровья, автооткат).
+2. Нотаризовать: приложение (`ditto` в zip → `notarytool submit --keychain-profile notarytool-profile --wait` → `stapler staple`), затем собрать DMG, подписать, нотаризовать и тоже застеплить.
+3. Подписать манифест `rms-release manifest` (ключ `release-key`), проверить `rms-release verify --check-artifacts`.
+4. Выложить на сервер обновлений скриптом `server-release-script` из `deploy-repo` (раскладка релиза, проверка здоровья и каталога, автооткат). Байты уже опубликованной версии сервер менять не даёт — каждое изменение выходит новой версией.
