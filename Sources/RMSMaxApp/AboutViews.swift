@@ -15,7 +15,7 @@ enum AppInfo {
     static let website = URL(string: "https://rms-ds.com")!
     static let sourceCode = URL(string: "https://github.com/max-ramas/rms-max")!
     static let license = URL(string: "https://www.gnu.org/licenses/agpl-3.0.html")!
-    static let boosty = URL(string: "https://boosty.to/rmsds")!
+    static let boosty = URL(string: "https://boosty.to/rmsds/donate")!
     static let kofi = URL(string: "https://ko-fi.com/maxramas")!
 }
 

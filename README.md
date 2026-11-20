@@ -144,7 +144,7 @@ RMS MAKS делается независимо, без рекламы и без 
 
 <div align="center">
 
-[![Boosty](https://img.shields.io/badge/Boosty-поддержать-F15F2C)](https://boosty.to/rmsds)
+[![Boosty](https://img.shields.io/badge/Boosty-поддержать-F15F2C)](https://boosty.to/rmsds/donate)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-поддержать-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/maxramas)
 
 </div>
