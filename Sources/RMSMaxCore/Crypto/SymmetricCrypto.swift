@@ -168,7 +168,7 @@ public enum MediaCrypto {
 
 // MARK: - Pure Swift BLAKE2b + RFC 9106 Argon2id
 
-private enum BLAKE2b {
+enum BLAKE2b {
     private static let iv: [UInt64] = [
         0x6a09e667f3bcc908, 0xbb67ae8584caa73b,
         0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,

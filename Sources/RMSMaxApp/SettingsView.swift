@@ -88,6 +88,10 @@ struct SettingsView: View {
                 Text("Речь распознаёт сервер MAX — только по нажатию «Расшифровать». Для зашифрованных (E2E) голосовых недоступно.")
             }
 
+            UpdateSettingsSection()
+
+            DiagnosticsSection()
+
             Section("Уведомления (macOS / iOS)") {
                 Toggle("Показывать уведомления", isOn: $notifEnabled)
                     .onChange(of: notifEnabled) { _, v in NotificationService.shared.notificationsEnabled = v }

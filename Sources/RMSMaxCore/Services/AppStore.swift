@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import LocalAuthentication
 import Combine
 
@@ -47,6 +48,9 @@ public final class AppStore: ObservableObject {
     public let client = MaxClient()
     public let callEncryption = CallEncryptionSession()
     var callSession: CallSession?
+    var reconnectTask: Task<Void, Never>?
+    var reconnectAttempt = 0
+    var networkMonitor: NWPathMonitor?
     @Published public internal(set) var callLocalVideo: CallVideoTrack?
     /// Remote video per participant (calls-platform id).
     @Published public internal(set) var callRemoteVideos: [Int64: CallVideoTrack] = [:]
@@ -55,6 +59,9 @@ public final class AppStore: ObservableObject {
     @Published public internal(set) var stickerPacks: [StickerPack] = []
     @Published public internal(set) var folders: [ChatFolder] = []
     @Published public internal(set) var storyPreviews: [StoryPreview] = []
+    @Published public internal(set) var availableUpdate: AvailableUpdate?
+    @Published public internal(set) var updateStatus: String?
+    @Published public internal(set) var isInstallingUpdate = false
     /// Voice transcriptions by "chatId:messageId".
     @Published public internal(set) var transcriptions: [String: String] = [:]
     @Published public var selectedFolderId: String? = nil
@@ -74,6 +81,8 @@ public final class AppStore: ObservableObject {
 
     public func bootstrap() async {
         wireCallKit()
+        startNetworkMonitor()
+        Task { await self.autoCheckForUpdates() }
         // The system notification prompt can stay unanswered for a long time; never block startup on it,
         // otherwise a late bootstrap overwrites an auth step the user has already advanced.
         Task { await NotificationService.shared.requestAuthorization() }
@@ -353,7 +362,7 @@ public final class AppStore: ObservableObject {
 
     // MARK: - Sync & Event Loop
 
-    public func connectAndSyncAccount(_ account: MaxAccount) async {
+    public func connectAndSyncAccount(_ account: MaxAccount, silent: Bool = false) async {
         isBusy = true
         defer { isBusy = false }
 
@@ -401,10 +410,71 @@ public final class AppStore: ObservableObject {
                 await loadAndApplySettings(chatId: chat.id)
             }
             chats = parsed.sorted { $0.lastEventTime > $1.lastEventTime }
+            reconnectAttempt = 0
+            ProtocolLog.add("synced: \(chats.count) chats, \(contacts.count) contacts")
+            Task { await self.ensureContacts(for: self.chats) }
+            if let open = selectedChatId { Task { await self.loadMessages(chatId: open) } }
         } catch {
             isConnected = false
-            errorBanner = error.localizedDescription
+            ProtocolLog.add("sync failed: \(error.localizedDescription)")
+            if !silent { errorBanner = error.localizedDescription }
+            if silent || currentAccount != nil { scheduleReconnect() }
         }
+    }
+
+    // MARK: - Reconnect
+
+    /// Back-off reconnect after the socket drops (1 s, 2 s, 5 s, 10 s, then every 30 s) and at once
+    /// when the network comes back. Re-runs login so pushes resume.
+    func scheduleReconnect() {
+        guard reconnectTask == nil, let account = currentAccount, authStep == .authenticated else { return }
+        let delays: [UInt64] = [1, 2, 5, 10, 30]
+        let delay = delays[min(reconnectAttempt, delays.count - 1)]
+        reconnectAttempt += 1
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.reconnectTask = nil
+            guard !self.isConnected else { return }
+            ProtocolLog.add("reconnect attempt \(self.reconnectAttempt)")
+            await self.client.disconnect()
+            await self.connectAndSyncAccount(account, silent: true)
+        }
+    }
+
+    func startNetworkMonitor() {
+        guard networkMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard path.status == .satisfied else { return }
+            Task { @MainActor in
+                guard let self, !self.isConnected, self.authStep == .authenticated else { return }
+                self.reconnectTask?.cancel()
+                self.reconnectTask = nil
+                self.reconnectAttempt = 0
+                self.scheduleReconnect()
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "rms.maks.net"))
+        networkMonitor = monitor
+    }
+
+    /// op 32 for people we only know by id: dialog peers, message senders, story owners.
+    func ensureContacts(_ ids: [Int64]) async {
+        let missing = Array(Set(ids.filter { $0 > 0 && contacts[$0] == nil }))
+        guard !missing.isEmpty else { return }
+        for start in stride(from: 0, to: missing.count, by: 100) {
+            let chunk = Array(missing[start..<min(start + 100, missing.count)])
+            guard let resp = try? await client.getContacts(chunk) else { continue }
+            for raw in resp.payload["contacts"]?.arrayValue ?? [] {
+                let c = parseContactValue(raw)
+                if contacts[c.id] == nil { contacts[c.id] = c }
+            }
+        }
+    }
+
+    func ensureContacts(for chats: [MaxChat]) async {
+        await ensureContacts(chats.compactMap { dialogPeerId(for: $0) })
     }
 
     private func startEventListener() async {
@@ -419,6 +489,7 @@ public final class AppStore: ObservableObject {
                     await self.handleServerPush(resp)
                 case .disconnected:
                     self.isConnected = false
+                    self.scheduleReconnect()
                 case .log:
                     break
                 }
@@ -510,6 +581,7 @@ public final class AppStore: ObservableObject {
             }
             resolved.sort { $0.timeMs < $1.timeMs }
             messagesByChat[chatId] = resolved
+            Task { await self.ensureContacts(resolved.map(\.senderId)) }
             if let last = resolved.last, let msgId = Int64(last.id) {
                 _ = try? await client.readMessage(chatId: chatId, messageId: msgId, markMs: last.timeMs)
                 if let idx = chats.firstIndex(where: { $0.id == chatId }) {
@@ -517,7 +589,8 @@ public final class AppStore: ObservableObject {
                 }
             }
         } catch {
-            errorBanner = error.localizedDescription
+            // While reconnecting the chat reloads by itself after sync; don't nag with a dialog.
+            if isConnected { errorBanner = error.localizedDescription }
         }
     }
 
@@ -1191,10 +1264,17 @@ public final class AppStore: ObservableObject {
 
     // MARK: - Wire JSON Parsers
 
+    /// Bot dialogs get a "/start" button.
+    public func isBotDialog(_ chat: MaxChat) -> Bool {
+        guard chat.type == .dialog else { return false }
+        return chat.hasBots || (dialogPeerId(for: chat).flatMap { contacts[$0]?.isBot } ?? false)
+    }
+
     /// Contact parser for other files (adds block status from the `status` field).
     func parseContactValue(_ v: JSONValue) -> MaxContact {
         var c = parseContact(v)
         if let st = v["status"]?.stringValue { c.isBlocked = st == "BLOCKED" }
+        c.isBot = (v["options"]?.arrayValue ?? []).contains { $0.stringValue == "BOT" }
         return c
     }
 
@@ -1252,6 +1332,7 @@ public final class AppStore: ObservableObject {
         chat.chatDescription = v["description"]?.stringValue
         chat.participantsCount = v["participantsCount"]?.int64Value.map(Int.init)
         chat.pendingJoinRequests = Int(v["pendingJoinRequestsCount"]?.int64Value ?? 0)
+        chat.hasBots = v["hasBots"]?.boolValue ?? false
         if let opts = v["options"]?.objectValue {
             chat.options = opts.compactMapValues(\.boolValue)
         }

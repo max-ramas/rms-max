@@ -169,7 +169,7 @@ struct ChatDetailView: View {
                 .background(Color.secondary.opacity(0.08))
             }
 
-            if messages.isEmpty && chat.type == .dialog && !store.loadingOlderHistory.contains(chat.id) {
+            if messages.isEmpty && store.isBotDialog(liveChat) && store.isConnected {
                 Button("Начать (/start)") { Task { await store.startBot(chatId: chat.id) } }
                     .buttonStyle(.bordered)
                     .padding(.top, 6)

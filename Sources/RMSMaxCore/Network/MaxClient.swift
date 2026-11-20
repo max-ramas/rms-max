@@ -85,6 +85,7 @@ public actor MaxClient {
         }
 
         pingTask = Task { [weak self] in
+            var missedPings = 0
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(MaxConstants.pingIntervalSeconds * 1_000_000_000))
                 guard !Task.isCancelled, let self else { break }
@@ -92,6 +93,17 @@ public actor MaxClient {
                 let online = await self.interactive
                 do {
                     _ = try await self.sendAndWait(opcode: 1, payload: .object(["interactive": .bool(online)]))
+                    missedPings = 0
+                } catch MaxTransportError.apiError {
+                    continue // the server answered: the connection is alive
+                } catch MaxTransportError.requestTimeout {
+                    // One slow ping is not a dead socket; give up after two in a row.
+                    missedPings += 1
+                    ProtocolLog.add("ping timeout #\(missedPings)")
+                    if missedPings >= 2 {
+                        await self.handleTransportClosed(reason: "ping timeout")
+                        break
+                    }
                 } catch {
                     await self.handleTransportClosed(reason: error.localizedDescription)
                     break
@@ -152,6 +164,7 @@ public actor MaxClient {
         transport = nil
         failPendingRequests(with: MaxTransportError.connectionClosed(reason ?? "EOF"))
         if wasConnected {
+            ProtocolLog.add("disconnected: \(reason ?? "EOF")")
             eventContinuation?.yield(.disconnected(reason))
         }
     }
@@ -189,6 +202,7 @@ public actor MaxClient {
         }
 
         if let errVal = resp.payload["error"], errVal != .null {
+            ProtocolLog.add("op=\(opcode) error=\(errVal.stringValue ?? "?") msg=\(resp.payload["localizedMessage"]?.stringValue ?? resp.payload["message"]?.stringValue ?? "")")
             throw MaxTransportError.apiError(resp.payload)
         }
         return resp
@@ -413,7 +427,7 @@ public actor MaxClient {
                 "forwardTime": .int(0),
                 "getChat": .bool(getChat),
                 "from": .int(from ?? nowMs),
-                "itemType": .string("ALL"),
+                "itemType": .string("REGULAR"), // server enum: REGULAR | DELAYED
                 "getMessages": .bool(true),
                 "interactive": .bool(true),
             ])
@@ -653,6 +667,11 @@ public actor MaxClient {
     }
 
     /// Max opcode 158: short-lived auth token for the calls platform.
+    /// op 32: contacts by id (names for dialogs, senders, story owners).
+    public func getContacts(_ ids: [Int64]) async throws -> MaxResponse {
+        try await sendAndWait(opcode: 32, payload: .object(["contactIds": .array(ids.map { .int($0) })]))
+    }
+
     public func callsToken() async throws -> String {
         let resp = try await sendAndWait(opcode: 158, payload: .null)
         guard let token = resp.payload["token"]?.stringValue, !token.isEmpty else {

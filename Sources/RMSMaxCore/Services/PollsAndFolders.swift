@@ -89,7 +89,10 @@ public extension AppStore {
 
     internal func applyFolders(_ p: JSONValue) {
         guard let list = p["folders"]?.arrayValue else { return }
-        var parsed = list.compactMap(ChatFolder.init)
+        // The server's own "all chats" folder duplicates our «Все» tab.
+        var parsed = list.compactMap(ChatFolder.init).filter {
+            !($0.include.isEmpty && $0.filters.isEmpty && ($0.id.lowercased().contains("all") || $0.title.lowercased() == "все"))
+        }
         if let order = p["foldersOrder"]?.arrayValue?.compactMap(\.stringValue), !order.isEmpty {
             parsed.sort { (order.firstIndex(of: $0.id) ?? .max) < (order.firstIndex(of: $1.id) ?? .max) }
         }

@@ -30,16 +30,25 @@ public struct Story: Identifiable, Hashable, Sendable {
 public extension AppStore {
     func loadStoryFeed() async {
         guard let resp = try? await client.sendAndWait(opcode: 208, payload: .object(["cursor": .string("0"), "count": .int(30)])) else { return }
-        storyPreviews = (resp.payload["storiesPreviews"]?.arrayValue ?? []).compactMap { p in
+        let previews: [StoryPreview] = (resp.payload["storiesPreviews"]?.arrayValue ?? []).compactMap { p in
             guard let owner = Self.storyOwner(p["owner"]) else { return nil }
             return StoryPreview(owner: owner, total: Int(p["totalCount"]?.int64Value ?? 0), read: Int(p["readCount"]?.int64Value ?? 0))
         }.filter { $0.total > 0 }
+        await ensureContacts(previews.filter { $0.owner.type == 0 }.map(\.owner.id))
+        storyPreviews = previews
     }
 
     func stories(of owner: StoryOwner) async -> [Story] {
-        guard let resp = try? await client.sendAndWait(opcode: 210, payload: .object(["owners": .array([owner.json])])) else { return [] }
-        let peer = (resp.payload["peerStories"]?.arrayValue ?? []).first
-        return (peer?["stories"]?.arrayValue ?? []).compactMap { s in
+        // op 219 lists one owner's stories (the official profile/story viewer); 210 is the fallback.
+        var raw: [JSONValue] = []
+        if let resp = try? await client.sendAndWait(opcode: 219, payload: .object(["owner": owner.json, "count": .int(30)])) {
+            raw = resp.payload["stories"]?.arrayValue ?? []
+        }
+        if raw.isEmpty, let resp = try? await client.sendAndWait(opcode: 210, payload: .object(["owners": .array([owner.json])])) {
+            raw = (resp.payload["peerStories"]?.arrayValue ?? []).first?["stories"]?.arrayValue ?? []
+        }
+        if raw.isEmpty { ProtocolLog.add("stories: none returned for owner type=\(owner.type)") }
+        return raw.compactMap { s in
             guard let id = s["id"]?.int64Value else { return nil }
             let media = s["media"]
             let type = media?["_type"]?.stringValue ?? ""

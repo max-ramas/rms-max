@@ -568,6 +568,7 @@ public struct MaxContact: Codable, Sendable, Equatable, Identifiable {
     public let id: Int64
     public var isBlocked: Bool? = nil
     public var isInContacts: Bool? = nil
+    public var isBot: Bool? = nil
     public var name: String
     public var firstName: String
     public var lastName: String
@@ -615,6 +616,7 @@ public struct MaxChat: Codable, Sendable, Equatable, Identifiable {
     public var participantsCount: Int? = nil
     public var pendingJoinRequests: Int = 0
     public var options: [String: Bool] = [:]
+    public var hasBots: Bool = false
 
     public var isMuted: Bool {
         if dontDisturbUntil < 0 { return true }

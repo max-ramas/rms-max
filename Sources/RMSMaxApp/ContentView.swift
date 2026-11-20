@@ -42,6 +42,7 @@ struct ContentView: View {
                     chatListSidebar
                         .safeAreaInset(edge: .top) {
                             VStack(spacing: 0) {
+                                UpdateBanner()
                                 StoriesBar()
                                 if !store.folders.isEmpty || store.isConnected {
                                     FolderBar(showingManager: $showingFolders)
