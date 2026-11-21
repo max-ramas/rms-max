@@ -34,7 +34,14 @@ final class PathStatusBox: @unchecked Sendable {
 public final class AppStore: ObservableObject {
     @Published public var accounts: [MaxAccount] = []
     @Published public var currentAccount: MaxAccount?
-    @Published public var authStep: AuthStep = .phoneInput
+    @Published public var authStep: AuthStep = .phoneInput {
+        didSet {
+            // Ask for notification permission only once the user is signed in, not on the login screen.
+            if case .authenticated = authStep, !(oldValue == .authenticated) {
+                Task { await NotificationService.shared.requestAuthorization() }
+            }
+        }
+    }
     @Published public var useMobileTransport = true
     @Published public var isConnected = false
     @Published public var isBusy = false
@@ -143,7 +150,6 @@ public final class AppStore: ObservableObject {
             guard let self else { return }
             Task { await self.selectChat(chatId) }
         }
-        Task { await NotificationService.shared.requestAuthorization() }
         let (loadedAccounts, currentId) = await store.loadAccounts()
         self.accounts = loadedAccounts
         if let selected = loadedAccounts.first(where: { $0.id == currentId }) ?? loadedAccounts.first {
