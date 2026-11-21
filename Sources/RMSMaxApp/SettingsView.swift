@@ -31,14 +31,6 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                Button("Пароль для входа…") { showingTwoFactor = true }
-            } header: {
-                Text("Безопасность")
-            } footer: {
-                Text("Двухфакторная защита: при входе на новом устройстве после кода из SMS потребуется пароль.")
-            }
-
             if let acc = store.currentAccount {
                 Section("Профиль") {
                     VStack(spacing: 6) {
@@ -72,6 +64,14 @@ struct SettingsView: View {
                     }
                     LabeledContent("Транспорт", value: acc.useMobileTransport ? "Mobile TLS (api2.oneme.ru)" : "WebSocket")
                     Button("Редактировать профиль…") { showingProfileEdit = true }
+                }
+
+                Section {
+                    Button("Пароль для входа…") { showingTwoFactor = true }
+                } header: {
+                    Text("Безопасность")
+                } footer: {
+                    Text("Двухфакторная защита: при входе на новом устройстве после кода из SMS потребуется пароль.")
                 }
 
                 Section("Приватность и телеметрия") {
