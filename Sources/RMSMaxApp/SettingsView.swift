@@ -31,6 +31,14 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                Button("Пароль для входа…") { showingTwoFactor = true }
+            } header: {
+                Text("Безопасность")
+            } footer: {
+                Text("Двухфакторная защита: при входе на новом устройстве после кода из SMS потребуется пароль.")
+            }
+
             if let acc = store.currentAccount {
                 Section("Профиль") {
                     VStack(spacing: 6) {
@@ -164,14 +172,6 @@ struct SettingsView: View {
                 Text("Оформление")
             } footer: {
                 Text("Фон и цвет ваших сообщений. Для отдельного чата тему можно задать кнопкой с палитрой в его заголовке.")
-            }
-
-            Section {
-                Button("Пароль для входа…") { showingTwoFactor = true }
-            } header: {
-                Text("Безопасность")
-            } footer: {
-                Text("Двухфакторная защита: при входе на новом устройстве после кода из SMS потребуется пароль.")
             }
 
             PrivacySettingsSection()

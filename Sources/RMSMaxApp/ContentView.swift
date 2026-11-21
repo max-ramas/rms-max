@@ -45,6 +45,8 @@ struct ContentView: View {
 
     /// max://… or https://max.ru/… handed over by the system (the browser's «open in app» prompt, Finder, Terminal).
     private func handleIncoming(_ url: URL) {
+        // A link opened before sign-in (or while locked) waits: it is handled once the account is ready.
+        guard store.authStep == .authenticated, !store.isLocked else { return }
         store.incomingURL = nil
         guard let link = MaxDeepLink.parse(url) else { return }
         switch link {
@@ -103,6 +105,9 @@ struct ContentView: View {
                                     .help("История звонков")
                                 Button { showingContacts = true } label: { Label("Контакты", systemImage: "person.crop.circle") }
                                     .help("Контакты")
+                                #if os(iOS)
+                                Button { showingSettings = true } label: { Label("Настройки", systemImage: "gearshape") }
+                                #endif
                             }
                         }
                         .searchable(text: $searchText, prompt: "Поиск чатов и сообщений")
@@ -174,6 +179,8 @@ struct ContentView: View {
             JoinByLinkSheet(initialLink: joinLinkInitial)
         }
         .onChange(of: store.incomingURL) { _, url in if let url { handleIncoming(url) } }
+        .onChange(of: store.authStep) { _, _ in if let url = store.incomingURL { handleIncoming(url) } }
+        .onChange(of: store.isLocked) { _, _ in if let url = store.incomingURL { handleIncoming(url) } }
         .task { if let url = store.incomingURL { handleIncoming(url) } }
         .sheet(isPresented: $showingCallHistory) {
             NavigationStack {
@@ -325,6 +332,9 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Присоединиться к звонку")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Отмена") { showingJoinCallSheet = false }

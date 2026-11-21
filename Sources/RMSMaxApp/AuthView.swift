@@ -102,16 +102,18 @@ struct AuthView: View {
                             .textContentType(.oneTimeCode)
                             #endif
                             .onSubmit { Task { await store.verifyCode(code) } }
+                        Button {
+                            Task { await store.verifyCode(code) }
+                        } label: {
+                            Text("Подтвердить").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(store.isBusy)
                         HStack {
                             Button("Назад") { code = ""; store.authStep = .phoneInput }
+                            Spacer()
                             Button("Отправить снова") { Task { await store.resendPhoneCode() } }
                                 .disabled(store.isBusy)
-                            Spacer()
-                            Button("Подтвердить") {
-                                Task { await store.verifyCode(code) }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(store.isBusy)
                         }
 
                     case .password2FA(let trackId, let hint):
